@@ -1,16 +1,20 @@
 const express = require('express');
 const app = express();
 
-const PORT = process.env.PORT || 5000;
+app.use(express.json());
 
+// ✅ TEST ROUTE
+app.get('/api/test', (req, res) => {
+  res.json({ message: "API working 🚀" });
+});
+
+// ✅ ROOT ROUTE
 app.get('/', (req, res) => {
   res.send("Backend chal raha hai 🚀");
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+const PORT = process.env.PORT || 5000;
 
-app.get('/api/test', (req, res) => {
-  res.json({ message: "API working 🚀" });
+app.listen(PORT, () => {
+  console.log("Server started");
 });
