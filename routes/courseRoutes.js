@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Course = require('../models/Course');
+const User = require('../models/User');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 
 // Saare courses lao (public)
@@ -19,6 +20,18 @@ router.get('/:id', async (req, res) => {
     const course = await Course.findById(req.params.id);
     if (!course) return res.status(404).json({ message: 'Course not found' });
     res.json(course);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Course ke enrolled users (admin only)
+router.get('/:id/enrolled-users', protect, adminOnly, async (req, res) => {
+  try {
+    const users = await User.find({
+      enrolledCourses: req.params.id
+    }).select('name email createdAt');
+    res.json(users);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
