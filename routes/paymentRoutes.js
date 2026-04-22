@@ -28,6 +28,7 @@ const upload = multer({ storage });
 
 router.post('/request', protect, upload.single('screenshot'), async (req, res) => {
   try {
+    console.log("HEADERS CONTENT-TYPE:", req.headers["content-type"]);
     console.log("BODY:", req.body);
     console.log("FILE:", req.file);
 
@@ -61,7 +62,6 @@ router.post('/request', protect, upload.single('screenshot'), async (req, res) =
     });
 
     await payment.save();
-
     res.status(201).json({ message: '✅ Payment request submitted!' });
   } catch (error) {
     console.error('PAYMENT REQUEST ERROR:', error);
