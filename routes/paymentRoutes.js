@@ -3,14 +3,10 @@ const multer = require('multer');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const Course = require('../models/Course');
+const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-// JWT middleware import kar
-const authMiddleware = require('../middleware/authMiddleware'); 
-// Agar tera middleware ka naam alag hai to apne hisaab se naam use kar
-
-// Multer config
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, 'uploads/');
@@ -23,60 +19,48 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-/*
-  1. USER PAYMENT REQUEST CREATE
-*/
-router.post(
-  '/request',
-  authMiddleware,
-  upload.single('screenshot'),
-  async (req, res) => {
-    try {
-      const { courseId } = req.body;
+router.post('/request', authMiddleware, upload.single('screenshot'), async (req, res) => {
+  try {
+    const { courseId } = req.body;
 
-      if (!req.file) {
-        return res.status(400).json({ message: 'Screenshot required!' });
-      }
-
-      const course = await Course.findById(courseId);
-      if (!course) {
-        return res.status(404).json({ message: 'Course not found!' });
-      }
-
-      // duplicate pending request avoid
-      const existing = await Payment.findOne({
-        user: req.user.id,
-        course: courseId,
-        status: 'pending',
-      });
-
-      if (existing) {
-        return res.status(400).json({ message: 'Payment request already pending!' });
-      }
-
-      const payment = new Payment({
-        user: req.user.id,
-        course: courseId,
-        screenshot: req.file.path,
-        amount: 39,
-      });
-
-      await payment.save();
-
-      res.status(201).json({ message: 'Payment request submitted successfully!' });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ message: 'Server error!' });
+    if (!req.file) {
+      return res.status(400).json({ message: 'Screenshot required!' });
     }
-  }
-);
 
-/*
-  2. ADMIN - ALL PAYMENT REQUESTS
-*/
+    const course = await Course.findById(courseId);
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found!' });
+    }
+
+    const existing = await Payment.findOne({
+      user: req.user.id,
+      course: courseId,
+      status: 'pending',
+    });
+
+    if (existing) {
+      return res.status(400).json({ message: 'Payment request already pending!' });
+    }
+
+    const payment = new Payment({
+      user: req.user.id,
+      course: courseId,
+      screenshot: req.file.path,
+      amount: 39,
+      status: 'pending',
+    });
+
+    await payment.save();
+
+    res.status(201).json({ message: 'Payment request submitted successfully!' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error!' });
+  }
+});
+
 router.get('/all', authMiddleware, async (req, res) => {
   try {
-    // admin check
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Access denied!' });
     }
@@ -93,9 +77,6 @@ router.get('/all', authMiddleware, async (req, res) => {
   }
 });
 
-/*
-  3. ADMIN - APPROVE PAYMENT
-*/
 router.put('/approve/:id', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
@@ -115,6 +96,9 @@ router.put('/approve/:id', authMiddleware, async (req, res) => {
     await payment.save();
 
     const user = await User.findById(payment.user);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found!' });
+    }
 
     if (!user.enrolledCourses.includes(payment.course)) {
       user.enrolledCourses.push(payment.course);
@@ -128,9 +112,6 @@ router.put('/approve/:id', authMiddleware, async (req, res) => {
   }
 });
 
-/*
-  4. ADMIN - REJECT PAYMENT
-*/
 router.put('/reject/:id', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {

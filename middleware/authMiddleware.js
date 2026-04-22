@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 
-module.exports = function (req, res, next) {
+const protect = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -10,15 +10,21 @@ module.exports = function (req, res, next) {
 
     const token = authHeader.split(' ')[1];
 
+    if (!token) {
+      return res.status(401).json({ message: 'Invalid token format' });
+    }
+
     const decoded = jwt.verify(token, 'secret123');
 
     req.user = {
       id: decoded.id,
-      role: decoded.role
+      role: decoded.role,
     };
 
     next();
   } catch (err) {
-    res.status(401).json({ message: 'Invalid token' });
+    return res.status(401).json({ message: 'Invalid token' });
   }
 };
+
+module.exports = protect;

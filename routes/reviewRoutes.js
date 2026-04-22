@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Review = require('../models/Review');
-const { protect } = require('../middleware/authMiddleware');
+const protect = require('../middleware/authMiddleware');
 
 // Course ke reviews lo
 router.get('/:courseId', async (req, res) => {
@@ -9,37 +9,43 @@ router.get('/:courseId', async (req, res) => {
     const reviews = await Review.find({ course: req.params.courseId })
       .populate('user', 'name photo')
       .sort({ createdAt: -1 });
+
     res.json(reviews);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Review do (enrolled students only)
+// Review do
 router.post('/:courseId', protect, async (req, res) => {
   try {
     const { rating, comment } = req.body;
 
-    // Pehle se review hai?
     const existing = await Review.findOne({
-      user: req.user.userId,
-      course: req.params.courseId
+      user: req.user.id,
+      course: req.params.courseId,
     });
-    if (existing) return res.status(400).json({ message: 'Already reviewed!' });
+
+    if (existing) {
+      return res.status(400).json({ message: 'Already reviewed!' });
+    }
 
     const review = new Review({
-      user: req.user.userId,
+      user: req.user.id,
       course: req.params.courseId,
-      rating, comment
+      rating,
+      comment,
     });
+
     await review.save();
+
     res.status(201).json({ message: '✅ Review submitted!' });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Review delete karo (admin only)
+// Review delete karo
 router.delete('/:id', protect, async (req, res) => {
   try {
     await Review.findByIdAndDelete(req.params.id);
