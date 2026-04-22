@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Review = require('../models/Review');
-const protect = require('../middleware/authMiddleware');
+const { protect } = require('../middleware/authMiddleware');
 
 // Course ke reviews lo
 router.get('/:courseId', async (req, res) => {
@@ -22,7 +22,7 @@ router.post('/:courseId', protect, async (req, res) => {
     const { rating, comment } = req.body;
 
     const existing = await Review.findOne({
-      user: req.user.id,
+      user: req.user._id,
       course: req.params.courseId,
     });
 
@@ -31,7 +31,7 @@ router.post('/:courseId', protect, async (req, res) => {
     }
 
     const review = new Review({
-      user: req.user.id,
+      user: req.user._id,
       course: req.params.courseId,
       rating,
       comment,
