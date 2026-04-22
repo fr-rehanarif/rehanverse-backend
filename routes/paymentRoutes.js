@@ -1,4 +1,5 @@
 const express = require('express');
+const multer = require('multer');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const Course = require('../models/Course');
@@ -6,12 +7,25 @@ const { protect } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-// Payment request submit karo
-router.post('/request', protect, async (req, res) => {
-  try {
-    const { courseId, screenshotUrl } = req.body;
+// Multer config
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/');
+  },
+  filename: function (req, file, cb) {
+    const uniqueName = Date.now() + '-' + file.originalname.replace(/\s+/g, '-');
+    cb(null, uniqueName);
+  },
+});
 
-    if (!screenshotUrl) {
+const upload = multer({ storage });
+
+// Payment request submit karo
+router.post('/request', protect, upload.single('screenshot'), async (req, res) => {
+  try {
+    const { courseId } = req.body;
+
+    if (!req.file) {
       return res.status(400).json({ message: 'Screenshot zaroori hai!' });
     }
 
@@ -21,7 +35,7 @@ router.post('/request', protect, async (req, res) => {
     }
 
     const existing = await Payment.findOne({
-      user: req.user.userId,
+      user: req.user._id,
       course: courseId,
       status: 'pending',
     });
@@ -31,9 +45,9 @@ router.post('/request', protect, async (req, res) => {
     }
 
     const payment = new Payment({
-      user: req.user.userId,
+      user: req.user._id,
       course: courseId,
-      screenshot: screenshotUrl,
+      screenshot: req.file.path,
       amount: course.price || 39,
       status: 'pending',
     });
