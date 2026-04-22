@@ -1,14 +1,15 @@
 const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   }
 });
 
-// Welcome email — student ko
 const sendWelcomeEmail = async (name, email) => {
   try {
     await transporter.sendMail({
@@ -23,21 +24,17 @@ const sendWelcomeEmail = async (name, email) => {
           </div>
           <div style="background: white; padding: 32px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
             <h2 style="color: #1e293b;">Welcome, ${name}! 👋</h2>
-            <p style="color: #64748b; line-height: 1.6;">
-              Aapka REHANVERSE mein swagat hai! Ab aap hamare saare courses access kar sakte hain.
-            </p>
+            <p style="color: #64748b; line-height: 1.6;">Aapka REHANVERSE mein swagat hai! Ab aap hamare saare courses access kar sakte hain.</p>
             <div style="background: #f1f5f9; padding: 20px; border-radius: 12px; margin: 24px 0;">
               <p style="color: #475569; margin: 0; font-size: 14px;">🚀 Courses browse karo</p>
               <p style="color: #475569; margin: 8px 0 0; font-size: 14px;">📹 Videos dekho</p>
               <p style="color: #475569; margin: 8px 0 0; font-size: 14px;">📄 PDF Notes download karo</p>
             </div>
             <a href="https://rehanverse-frontend.vercel.app/courses" 
-              style="display: inline-block; background: #4f46e5; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-top: 8px;">
+              style="display: inline-block; background: #4f46e5; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: bold;">
               Courses Dekho 🎓
             </a>
-            <p style="color: #94a3b8; font-size: 12px; margin-top: 32px;">
-              REHANVERSE Team ❤️
-            </p>
+            <p style="color: #94a3b8; font-size: 12px; margin-top: 32px;">REHANVERSE Team ❤️</p>
           </div>
         </div>
       `
@@ -48,7 +45,6 @@ const sendWelcomeEmail = async (name, email) => {
   }
 };
 
-// Admin ko notification — naya user
 const sendAdminNotification = async (name, email) => {
   try {
     await transporter.sendMail({
