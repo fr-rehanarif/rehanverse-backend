@@ -1,5 +1,7 @@
 const express = require('express');
 const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const Course = require('../models/Course');
@@ -7,10 +9,16 @@ const { protect } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
+// uploads folder ensure karo
+const uploadDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 // Multer config
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/');
+    cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
     const uniqueName = Date.now() + '-' + file.originalname.replace(/\s+/g, '-');
@@ -47,7 +55,7 @@ router.post('/request', protect, upload.single('screenshot'), async (req, res) =
     const payment = new Payment({
       user: req.user._id,
       course: courseId,
-      screenshot: req.file.path,
+      screenshot: `uploads/${req.file.filename}`,
       amount: course.price || 39,
       status: 'pending',
     });
@@ -55,8 +63,8 @@ router.post('/request', protect, upload.single('screenshot'), async (req, res) =
     await payment.save();
     res.status(201).json({ message: '✅ Payment request submitted!' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error!' });
+    console.error('PAYMENT REQUEST ERROR:', error);
+    res.status(500).json({ message: error.message || 'Server error!' });
   }
 });
 
