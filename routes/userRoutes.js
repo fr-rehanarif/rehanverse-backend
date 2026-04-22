@@ -19,9 +19,10 @@ router.get('/', protect, adminOnly, async (req, res) => {
 // Apni profile dekho
 router.get('/me', protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId)
+    const user = await User.findById(req.user._id)
       .select('-password -__v')
       .populate('enrolledCourses', 'title thumbnail');
+
     res.json(user);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
@@ -32,7 +33,7 @@ router.get('/me', protect, async (req, res) => {
 router.put('/me', protect, async (req, res) => {
   try {
     const { name, phone, bio, photo, currentPassword, newPassword } = req.body;
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user._id);
 
     if (name) user.name = name;
     if (phone !== undefined) user.phone = phone;
@@ -41,14 +42,25 @@ router.put('/me', protect, async (req, res) => {
 
     if (currentPassword && newPassword) {
       const isMatch = await bcrypt.compare(currentPassword, user.password);
-      if (!isMatch) return res.status(400).json({ message: '❌ Current password galat hai!' });
+      if (!isMatch) {
+        return res.status(400).json({ message: '❌ Current password galat hai!' });
+      }
       user.password = await bcrypt.hash(newPassword, 10);
     }
 
     await user.save();
+
     res.json({
       message: '✅ Profile updated!',
-      user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, bio: user.bio, photo: user.photo }
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        bio: user.bio,
+        photo: user.photo
+      }
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
@@ -59,8 +71,12 @@ router.put('/me', protect, async (req, res) => {
 router.delete('/:id', protect, adminOnly, async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
+
     if (!user) return res.status(404).json({ message: 'User not found!' });
-    if (user.role === 'admin') return res.status(403).json({ message: 'Admin ko delete nahi kar sakte!' });
+    if (user.role === 'admin') {
+      return res.status(403).json({ message: 'Admin ko delete nahi kar sakte!' });
+    }
+
     await User.findByIdAndDelete(req.params.id);
     res.json({ message: '✅ User deleted!' });
   } catch (error) {
