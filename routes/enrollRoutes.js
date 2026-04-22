@@ -4,41 +4,52 @@ const User = require('../models/User');
 const Course = require('../models/Course');
 const { protect } = require('../middleware/authMiddleware');
 
-// Course mein enroll karo
+// User ke enrolled courses lao
+router.get('/my/courses', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).populate('enrolledCourses');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found!' });
+    }
+
+    res.json(user.enrolledCourses || []);
+  } catch (error) {
+    console.error('MY COURSES ERROR:', error);
+    res.status(500).json({ message: 'Server error!' });
+  }
+});
+
+// Course enroll karo
 router.post('/:courseId', protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId);
-    const course = await Course.findById(req.params.courseId);
+    const { courseId } = req.params;
 
-    if (!course) return res.status(404).json({ message: 'Course not found!' });
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found!' });
+    }
 
-    // Pehle se enrolled hai?
-    if (user.enrolledCourses.includes(req.params.courseId)) {
+    const course = await Course.findById(courseId);
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found!' });
+    }
+
+    const alreadyEnrolled = user.enrolledCourses.some(
+      (id) => id.toString() === courseId
+    );
+
+    if (alreadyEnrolled) {
       return res.status(400).json({ message: 'Already enrolled!' });
     }
 
-    // Paid course check
-    if (!course.isFree && course.price > 0) {
-      return res.status(402).json({ message: 'PAYMENT_REQUIRED', price: course.price });
-    }
-
-    // Enroll karo
-    user.enrolledCourses.push(req.params.courseId);
+    user.enrolledCourses.push(courseId);
     await user.save();
 
     res.json({ message: '✅ Enrolled successfully!' });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
-  }
-});
-
-// Meri enrolled courses
-router.get('/my/courses', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.userId).populate('enrolledCourses');
-    res.json(user.enrolledCourses);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('ENROLL ERROR:', error);
+    res.status(500).json({ message: 'Server error!' });
   }
 });
 
