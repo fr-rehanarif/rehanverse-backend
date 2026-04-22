@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { sendWelcomeEmail, sendAdminNotification } = require('../utils/email');
 
 // SIGNUP
 router.post('/signup', async (req, res) => {
@@ -21,6 +22,10 @@ router.post('/signup', async (req, res) => {
     // User banao
     const user = new User({ name, email, password: hashedPassword });
     await user.save();
+
+    // Emails bhejo
+    sendWelcomeEmail(user.name, user.email);
+    sendAdminNotification(user.name, user.email);
 
     res.status(201).json({ message: '✅ Account created successfully!' });
   } catch (error) {
@@ -60,6 +65,7 @@ router.post('/login', async (req, res) => {
     res.status(500).json({ message: 'Server error', error });
   }
 });
+
 // Apne aap ko admin banao (sirf ek baar use karna)
 router.post('/make-admin', async (req, res) => {
   try {
@@ -78,6 +84,5 @@ router.post('/make-admin', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-
 
 module.exports = router;
