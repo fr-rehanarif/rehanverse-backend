@@ -15,4 +15,17 @@ router.get('/', protect, adminOnly, async (req, res) => {
   }
 });
 
+// User delete karo (admin only)
+router.delete('/:id', protect, adminOnly, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found!' });
+    if (user.role === 'admin') return res.status(403).json({ message: 'Admin ko delete nahi kar sakte!' });
+    await User.findByIdAndDelete(req.params.id);
+    res.json({ message: '✅ User deleted!' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;
