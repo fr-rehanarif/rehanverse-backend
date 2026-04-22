@@ -1,30 +1,18 @@
 const express = require('express');
-const multer = require('multer');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const Course = require('../models/Course');
-const authMiddleware = require('../middleware/authMiddleware');
+const { protect } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/');
-  },
-  filename: function (req, file, cb) {
-    const uniqueName = Date.now() + '-' + file.originalname.replace(/\s+/g, '-');
-    cb(null, uniqueName);
-  },
-});
-
-const upload = multer({ storage });
-
-router.post('/request', authMiddleware, upload.single('screenshot'), async (req, res) => {
+// Payment request submit karo
+router.post('/request', protect, async (req, res) => {
   try {
-    const { courseId } = req.body;
+    const { courseId, screenshotUrl } = req.body;
 
-    if (!req.file) {
-      return res.status(400).json({ message: 'Screenshot required!' });
+    if (!screenshotUrl) {
+      return res.status(400).json({ message: 'Screenshot zaroori hai!' });
     }
 
     const course = await Course.findById(courseId);
@@ -33,7 +21,7 @@ router.post('/request', authMiddleware, upload.single('screenshot'), async (req,
     }
 
     const existing = await Payment.findOne({
-      user: req.user.id,
+      user: req.user.userId,
       course: courseId,
       status: 'pending',
     });
@@ -43,31 +31,31 @@ router.post('/request', authMiddleware, upload.single('screenshot'), async (req,
     }
 
     const payment = new Payment({
-      user: req.user.id,
+      user: req.user.userId,
       course: courseId,
-      screenshot: req.file.path,
-      amount: 39,
+      screenshot: screenshotUrl,
+      amount: course.price || 39,
       status: 'pending',
     });
 
     await payment.save();
-
-    res.status(201).json({ message: 'Payment request submitted successfully!' });
+    res.status(201).json({ message: '✅ Payment request submitted!' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error!' });
   }
 });
 
-router.get('/all', authMiddleware, async (req, res) => {
+// Saari payments dekho (admin only)
+router.get('/all', protect, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Access denied!' });
     }
 
     const payments = await Payment.find()
-      .populate('user', 'name email')
-      .populate('course', 'title')
+      .populate('user', 'name email photo')
+      .populate('course', 'title price')
       .sort({ createdAt: -1 });
 
     res.json(payments);
@@ -77,7 +65,8 @@ router.get('/all', authMiddleware, async (req, res) => {
   }
 });
 
-router.put('/approve/:id', authMiddleware, async (req, res) => {
+// Payment approve karo
+router.put('/approve/:id', protect, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Access denied!' });
@@ -85,7 +74,7 @@ router.put('/approve/:id', authMiddleware, async (req, res) => {
 
     const payment = await Payment.findById(req.params.id);
     if (!payment) {
-      return res.status(404).json({ message: 'Payment request not found!' });
+      return res.status(404).json({ message: 'Payment not found!' });
     }
 
     if (payment.status === 'approved') {
@@ -96,23 +85,20 @@ router.put('/approve/:id', authMiddleware, async (req, res) => {
     await payment.save();
 
     const user = await User.findById(payment.user);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found!' });
-    }
-
-    if (!user.enrolledCourses.includes(payment.course)) {
+    if (user && !user.enrolledCourses.includes(payment.course)) {
       user.enrolledCourses.push(payment.course);
       await user.save();
     }
 
-    res.json({ message: 'Payment approved and user enrolled!' });
+    res.json({ message: '✅ Payment approved & user enrolled!' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error!' });
   }
 });
 
-router.put('/reject/:id', authMiddleware, async (req, res) => {
+// Payment reject karo
+router.put('/reject/:id', protect, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Access denied!' });
@@ -120,13 +106,13 @@ router.put('/reject/:id', authMiddleware, async (req, res) => {
 
     const payment = await Payment.findById(req.params.id);
     if (!payment) {
-      return res.status(404).json({ message: 'Payment request not found!' });
+      return res.status(404).json({ message: 'Payment not found!' });
     }
 
     payment.status = 'rejected';
     await payment.save();
 
-    res.json({ message: 'Payment rejected!' });
+    res.json({ message: '❌ Payment rejected!' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error!' });
