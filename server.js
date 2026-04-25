@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const pdfRoutes = require('./routes/pdfRoutes');
+app.use('/api/pdf', pdfRoutes);
 
 const paymentRoutes = require('./routes/paymentRoutes');
 require('dotenv').config();
