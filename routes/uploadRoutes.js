@@ -2,15 +2,18 @@ const express = require('express');
 const router = express.Router();
 const upload = require('../middleware/upload');
 
-router.post('/image', upload.single('image'), (req, res) => {
-  console.log("REQ FILE:", req.file);
+// ✅ PDF UPLOAD ROUTE
+router.post('/pdf', upload.single('pdf'), (req, res) => {
+  console.log("PDF FILE:", req.file);
 
   if (!req.file) {
-    return res.status(400).json({ message: 'No file uploaded' });
+    return res.status(400).json({ message: 'No PDF uploaded' });
   }
 
-  const url = `http://localhost:5000/uploads/${req.file.filename}`;
-  res.json({ url });
+  // ✅ sirf filename bhejna hai (important)
+  res.json({
+    filename: req.file.filename
+  });
 });
 
 module.exports = router;
