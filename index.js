@@ -5,10 +5,12 @@ const cors = require('cors');
 const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/paymentRoutes'); // 👈 add this
 
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use('/api/users', userRoutes);
 
 
 // 📁 uploads folder serve karne ke liye

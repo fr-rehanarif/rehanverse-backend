@@ -4,6 +4,24 @@ const User = require('../models/User');
 
 const { protect } = require('../middleware/authMiddleware');
 
+// ✅ GET LOGGED-IN USER
+router.get('/me', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id)
+      .select('-password')
+      .populate('enrolledCourses', 'title');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found!' });
+    }
+
+    res.json(user);
+  } catch (err) {
+    console.log('Get me error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // ✅ GET ALL USERS
 router.get('/', protect, async (req, res) => {
   try {
