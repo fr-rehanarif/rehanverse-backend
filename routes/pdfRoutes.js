@@ -28,23 +28,22 @@ router.post('/view', protect, async (req, res) => {
     pdfDoc.getPages().forEach((page) => {
       const { width, height } = page.getSize();
 
+      // ✅ CLEAN POSITIONS (no overlap)
       const positions = [
-        { x: width * 0.08, y: height * 0.82 },
-        { x: width * 0.42, y: height * 0.90 },
-        { x: width * 0.14, y: height * 0.58 },
-        { x: width * 0.52, y: height * 0.62 },
-        { x: width * 0.10, y: height * 0.34 },
-        { x: width * 0.45, y: height * 0.25 },
+        { x: width * 0.12, y: height * 0.78 },
+        { x: width * 0.55, y: height * 0.60 },
+        { x: width * 0.18, y: height * 0.35 },
+        { x: width * 0.55, y: height * 0.20 },
       ];
 
       positions.forEach((pos) => {
         page.drawText(watermarkText, {
           x: pos.x,
           y: pos.y,
-          size: 16,
+          size: 11, // 🔥 smaller size
           font,
           color: rgb(1, 0, 0),
-          opacity: 0.18,
+          opacity: 0.10, // 🔥 light
           rotate: degrees(35),
         });
       });
