@@ -3,7 +3,6 @@ const router = express.Router();
 const Activity = require('../models/Activity');
 const { protect } = require('../middleware/authMiddleware');
 
-// USER ACTIVITY SAVE
 router.post('/log', protect, async (req, res) => {
   try {
     const { action, page } = req.body;
@@ -30,7 +29,6 @@ router.post('/log', protect, async (req, res) => {
   }
 });
 
-// ADMIN: GET ALL ACTIVITIES
 router.get('/all', protect, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {

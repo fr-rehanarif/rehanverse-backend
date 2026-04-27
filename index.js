@@ -4,6 +4,7 @@ const cors = require('cors');
 
 const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/paymentRoutes'); // 👈 add this
+
 const activityRoutes = require('./routes/activityRoutes');
 
 
@@ -12,7 +13,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use('/api/users', userRoutes);
-
+app.use('/api/activity', activityRoutes);
 
 // 📁 uploads folder serve karne ke liye
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -30,8 +31,7 @@ app.get('/api/test', (req, res) => {
   res.json({ message: "API working 🚀" });
 });
 
-//ACTIVITY PANEL
-app.use('/api/activity', activityRoutes);
+
 
 // ✅ ROOT ROUTE
 app.get('/', (req, res) => {
