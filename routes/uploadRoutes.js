@@ -5,14 +5,13 @@ const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 
 const upload = require('../middleware/upload');
-const addWatermark = require('../utils/addWatermark');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ✅ PDF UPLOAD + WATERMARK + SUPABASE
+// ✅ PDF UPLOAD (NO WATERMARK HERE)
 router.post('/pdf', upload.single('pdf'), async (req, res) => {
   try {
     console.log('PDF FILE:', req.file);
@@ -23,22 +22,14 @@ router.post('/pdf', upload.single('pdf'), async (req, res) => {
 
     const inputPath = req.file.path;
 
-    const watermarkedFilename = `watermarked-${Date.now()}-${req.file.originalname.replace(/\s+/g, '-')}`;
-    const outputPath = path.join('uploads', watermarkedFilename);
+    const filename = `${Date.now()}-${req.file.originalname.replace(/\s+/g, '-')}`;
 
-    // ✅ watermark local temp file me lagega
-    await addWatermark(
-      inputPath,
-      outputPath,
-      'Rehan • rehanarif.mg • @REHANVERSE'
-    );
+    const fileBuffer = fs.readFileSync(inputPath);
 
-    const fileBuffer = fs.readFileSync(outputPath);
-
-    // ✅ watermarked PDF Supabase me upload
+    // ✅ Direct Supabase upload (clean PDF)
     const { error } = await supabase.storage
       .from('course-pdfs')
-      .upload(watermarkedFilename, fileBuffer, {
+      .upload(filename, fileBuffer, {
         contentType: 'application/pdf',
         upsert: false,
       });
@@ -53,21 +44,20 @@ router.post('/pdf', upload.single('pdf'), async (req, res) => {
 
     const { data } = supabase.storage
       .from('course-pdfs')
-      .getPublicUrl(watermarkedFilename);
+      .getPublicUrl(filename);
 
-    // ✅ temp files delete
+    // ✅ temp file delete
     fs.unlinkSync(inputPath);
-    fs.unlinkSync(outputPath);
 
     res.json({
-      message: 'PDF watermarked and uploaded to Supabase',
-      filename: watermarkedFilename,
+      message: 'PDF uploaded (clean)',
+      filename: filename,
       url: data.publicUrl,
     });
   } catch (error) {
-    console.log('PDF watermark upload error:', error);
+    console.log('PDF upload error:', error);
     res.status(500).json({
-      message: 'PDF upload/watermark failed',
+      message: 'PDF upload failed',
       error: error.message,
     });
   }
