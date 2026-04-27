@@ -4,6 +4,7 @@ const cors = require('cors');
 
 const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/paymentRoutes'); // 👈 add this
+const activityRoutes = require('./routes/activityRoutes');
 
 
 const app = express();
@@ -29,6 +30,8 @@ app.get('/api/test', (req, res) => {
   res.json({ message: "API working 🚀" });
 });
 
+//ACTIVITY PANEL
+app.use('/api/activity', activityRoutes);
 
 // ✅ ROOT ROUTE
 app.get('/', (req, res) => {
