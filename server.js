@@ -8,6 +8,9 @@ require('dotenv').config();
 // ✅ APP PEHLE BANAAO
 const app = express();
 
+//Tracker
+const activityRoutes = require('./routes/activityRoutes');
+
 // ✅ ROUTES IMPORT BAAD ME
 const pdfRoutes = require('./routes/pdfRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
@@ -30,6 +33,7 @@ app.use('/uploads', express.static(uploadsPath));
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/reviews', require('./routes/reviewRoutes'));
+app.use('/api/activity', activityRoutes);
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/courses', require('./routes/courseRoutes'));
