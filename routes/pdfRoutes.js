@@ -28,24 +28,15 @@ router.post('/view', protect, async (req, res) => {
     pdfDoc.getPages().forEach((page) => {
       const { width, height } = page.getSize();
 
-      // ✅ CLEAN POSITIONS (no overlap)
-      const positions = [
-        { x: width * 0.12, y: height * 0.78 },
-        { x: width * 0.55, y: height * 0.60 },
-        { x: width * 0.18, y: height * 0.35 },
-        { x: width * 0.55, y: height * 0.20 },
-      ];
-
-      positions.forEach((pos) => {
-        page.drawText(watermarkText, {
-          x: pos.x,
-          y: pos.y,
-          size: 11, // 🔥 smaller size
-          font,
-          color: rgb(1, 0, 0),
-          opacity: 0.10, // 🔥 light
-          rotate: degrees(35),
-        });
+      // ✅ Premium center diagonal watermark
+      page.drawText(watermarkText, {
+        x: width * 0.10,
+        y: height * 0.48,
+        size: 22,
+        font,
+        color: rgb(1, 0, 0),
+        opacity: 0.12,
+        rotate: degrees(35),
       });
     });
 
