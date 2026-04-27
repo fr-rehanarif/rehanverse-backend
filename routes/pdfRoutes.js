@@ -23,20 +23,42 @@ router.post('/view', protect, async (req, res) => {
 
     const userName = req.user?.name || 'User';
     const userEmail = req.user?.email || 'protected-user';
-    const watermarkText = `${userName} • ${userEmail} • REHANVERSE`;
 
     pdfDoc.getPages().forEach((page) => {
       const { width, height } = page.getSize();
 
-      // ✅ Premium center diagonal watermark
-      page.drawText(watermarkText, {
-        x: width * 0.10,
-        y: height * 0.48,
-        size: 22,
+      // ✅ Premium circular/stamp-style watermark
+      const centerX = width * 0.5;
+      const centerY = height * 0.52;
+
+      page.drawText('REHANVERSE', {
+        x: centerX - 95,
+        y: centerY + 20,
+        size: 34,
         font,
         color: rgb(1, 0, 0),
-        opacity: 0.12,
-        rotate: degrees(35),
+        opacity: 0.09,
+        rotate: degrees(-18),
+      });
+
+      page.drawText('PROTECTED CONTENT', {
+        x: centerX - 118,
+        y: centerY - 18,
+        size: 18,
+        font,
+        color: rgb(1, 0, 0),
+        opacity: 0.08,
+        rotate: degrees(-18),
+      });
+
+      page.drawText(`${userName} • ${userEmail}`, {
+        x: centerX - 140,
+        y: centerY - 48,
+        size: 12,
+        font,
+        color: rgb(1, 0, 0),
+        opacity: 0.07,
+        rotate: degrees(-18),
       });
     });
 
