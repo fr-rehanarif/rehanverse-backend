@@ -1,45 +1,68 @@
 const express = require('express');
 const router = express.Router();
-const path = require('path');
-const fs = require('fs');
+const axios = require('axios');
+const { PDFDocument, rgb, degrees, StandardFonts } = require('pdf-lib');
 
 const { protect } = require('../middleware/authMiddleware');
-const User = require('../models/User');
 
-// GET /api/pdf/:filename
-router.get('/:filename', protect, async (req, res) => {
+// POST /api/pdf/view
+router.post('/view', protect, async (req, res) => {
   try {
-    const userId = req.user.id || req.user.userId || req.user._id;
-    const filename = req.params.filename;
+    const { pdfUrl } = req.body;
 
-    const user = await User.findById(userId);
-
-    if (!user) {
-      return res.status(401).json({ message: 'Unauthorized user' });
+    if (!pdfUrl) {
+      return res.status(400).json({ message: 'PDF URL required' });
     }
 
-    if (!user.enrolledCourses || user.enrolledCourses.length === 0) {
-      return res.status(403).json({ message: 'Not enrolled in any course' });
-    }
+    const response = await axios.get(pdfUrl, {
+      responseType: 'arraybuffer',
+    });
 
-    const filePath = path.join(__dirname, '..', 'uploads', filename);
+    const pdfDoc = await PDFDocument.load(response.data);
+    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    if (!fs.existsSync(filePath)) {
-      console.log('❌ PDF file not found:', filePath);
-      return res.status(404).json({
-        message: 'PDF file not found on server',
-        filename,
+    const userName = req.user?.name || 'User';
+    const userEmail = req.user?.email || 'protected-user';
+    const watermarkText = `${userName} • ${userEmail} • REHANVERSE`;
+
+    pdfDoc.getPages().forEach((page) => {
+      const { width, height } = page.getSize();
+
+      const positions = [
+        { x: width * 0.08, y: height * 0.82 },
+        { x: width * 0.42, y: height * 0.90 },
+        { x: width * 0.14, y: height * 0.58 },
+        { x: width * 0.52, y: height * 0.62 },
+        { x: width * 0.10, y: height * 0.34 },
+        { x: width * 0.45, y: height * 0.25 },
+      ];
+
+      positions.forEach((pos) => {
+        page.drawText(watermarkText, {
+          x: pos.x,
+          y: pos.y,
+          size: 16,
+          font,
+          color: rgb(1, 0, 0),
+          opacity: 0.18,
+          rotate: degrees(35),
+        });
       });
-    }
+    });
+
+    const watermarkedPdf = await pdfDoc.save();
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Content-Disposition', 'inline; filename="rehanverse-notes.pdf"');
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
 
-    return res.sendFile(filePath);
+    return res.send(Buffer.from(watermarkedPdf));
   } catch (err) {
     console.log('PDF route error:', err);
-    return res.status(500).json({ message: 'PDF server error' });
+    return res.status(500).json({
+      message: 'PDF server error',
+      error: err.message,
+    });
   }
 });
 
