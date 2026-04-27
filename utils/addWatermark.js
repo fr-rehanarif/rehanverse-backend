@@ -20,50 +20,52 @@ async function addWatermark(inputPath, outputPath, user = {}) {
 
   pages.forEach((page) => {
     const { width, height } = page.getSize();
-
     const centerX = width / 2;
 
-    // ✅ user name top
+    const purple = rgb(0.45, 0.22, 0.95);
+    const blue = rgb(0.25, 0.35, 1);
+
+    // ✅ username - bohot upar + bigger + darker
     page.drawText(username, {
-      x: centerX - boldFont.widthOfTextAtSize(username, 18) / 2,
-      y: height * 0.72,
-      size: 18,
+      x: centerX - boldFont.widthOfTextAtSize(username, 24) / 2,
+      y: height * 0.84,
+      size: 24,
       font: boldFont,
-      color: rgb(0.55, 0.35, 1),
-      opacity: 0.16,
+      color: purple,
+      opacity: 0.34,
     });
 
-    // ✅ REHANVERSE text above logo
-    const brand = 'REHANVERSE';
+    // ✅ REHANVERSE - logo se upar, overlap nahi karega
+    const brand = 'R E H A N V E R S E';
     page.drawText(brand, {
-      x: centerX - boldFont.widthOfTextAtSize(brand, 34) / 2,
-      y: height * 0.61,
-      size: 34,
+      x: centerX - boldFont.widthOfTextAtSize(brand, 32) / 2,
+      y: height * 0.68,
+      size: 32,
       font: boldFont,
-      color: rgb(0.55, 0.35, 1),
-      opacity: 0.13,
+      color: purple,
+      opacity: 0.30,
     });
 
-    // ✅ logo center
-    const logoWidth = width * 0.55;
+    // ✅ logo center - thoda niche, readable but document disturb nahi karega
+    const logoWidth = width * 0.58;
     const logoHeight = logoWidth * (logoImage.height / logoImage.width);
 
     page.drawImage(logoImage, {
       x: centerX - logoWidth / 2,
-      y: height * 0.38,
+      y: height * 0.36,
       width: logoWidth,
       height: logoHeight,
-      opacity: 0.08,
+      opacity: 0.15,
     });
 
-    // ✅ email bottom
+    // ✅ email - bohot niche + bigger + darker
     page.drawText(email, {
-      x: centerX - normalFont.widthOfTextAtSize(email, 16) / 2,
-      y: height * 0.23,
-      size: 16,
+      x: centerX - normalFont.widthOfTextAtSize(email, 20) / 2,
+      y: height * 0.13,
+      size: 20,
       font: normalFont,
-      color: rgb(0.35, 0.35, 1),
-      opacity: 0.16,
+      color: blue,
+      opacity: 0.34,
     });
   });
 
