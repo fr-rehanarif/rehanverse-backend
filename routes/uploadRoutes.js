@@ -5,16 +5,19 @@ const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 
 const upload = require('../middleware/upload');
+const addWatermark = require('../utils/addWatermark');
+const { protect } = require('../middleware/authMiddleware');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ✅ PDF UPLOAD (NO WATERMARK HERE)
-router.post('/pdf', upload.single('pdf'), async (req, res) => {
+// ✅ PDF UPLOAD + WATERMARK + SUPABASE
+router.post('/pdf', protect, upload.single('pdf'), async (req, res) => {
   try {
     console.log('PDF FILE:', req.file);
+    console.log('WATERMARK USER:', req.user);
 
     if (!req.file) {
       return res.status(400).json({ message: 'No PDF uploaded' });
@@ -22,14 +25,21 @@ router.post('/pdf', upload.single('pdf'), async (req, res) => {
 
     const inputPath = req.file.path;
 
-    const filename = `${Date.now()}-${req.file.originalname.replace(/\s+/g, '-')}`;
+    const watermarkedFilename = `watermarked-${Date.now()}-${req.file.originalname.replace(/\s+/g, '-')}`;
+    const outputPath = path.join('uploads', watermarkedFilename);
 
-    const fileBuffer = fs.readFileSync(inputPath);
+    // ✅ Add watermark with logged-in user details
+    await addWatermark(inputPath, outputPath, {
+      name: req.user?.name || 'REHANVERSE USER',
+      email: req.user?.email || 'protected@rehanverse.com',
+    });
 
-    // ✅ Direct Supabase upload (clean PDF)
+    const fileBuffer = fs.readFileSync(outputPath);
+
+    // ✅ Upload watermarked PDF to Supabase
     const { error } = await supabase.storage
       .from('course-pdfs')
-      .upload(filename, fileBuffer, {
+      .upload(watermarkedFilename, fileBuffer, {
         contentType: 'application/pdf',
         upsert: false,
       });
@@ -44,14 +54,15 @@ router.post('/pdf', upload.single('pdf'), async (req, res) => {
 
     const { data } = supabase.storage
       .from('course-pdfs')
-      .getPublicUrl(filename);
+      .getPublicUrl(watermarkedFilename);
 
-    // ✅ temp file delete
-    fs.unlinkSync(inputPath);
+    // ✅ temp files delete
+    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
 
     res.json({
-      message: 'PDF uploaded (clean)',
-      filename: filename,
+      message: 'PDF uploaded with watermark',
+      filename: watermarkedFilename,
       url: data.publicUrl,
     });
   } catch (error) {
