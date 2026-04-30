@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Course = require('../models/Course');
 const User = require('../models/User');
+const Notification = require('../models/Notification');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 
 // Saare courses lao (public)
@@ -10,6 +11,7 @@ router.get('/', async (req, res) => {
     const courses = await Course.find();
     res.json(courses);
   } catch (error) {
+    console.log('COURSES FETCH ERROR:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -18,9 +20,14 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const course = await Course.findById(req.params.id);
-    if (!course) return res.status(404).json({ message: 'Course not found' });
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
     res.json(course);
   } catch (error) {
+    console.log('SINGLE COURSE FETCH ERROR:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -29,27 +36,51 @@ router.get('/:id', async (req, res) => {
 router.get('/:id/enrolled-users', protect, adminOnly, async (req, res) => {
   try {
     const users = await User.find({
-      enrolledCourses: req.params.id
+      enrolledCourses: req.params.id,
     }).select('name email createdAt');
+
     res.json(users);
   } catch (error) {
+    console.log('ENROLLED USERS FETCH ERROR:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Course banao (admin only)
+// Course banao (admin only) + auto notification
 router.post('/', protect, adminOnly, async (req, res) => {
   try {
     const { title, description, price, isFree, thumbnail, videos, pdfs } = req.body;
+
     const course = new Course({
-      title, description, price, isFree, thumbnail,
+      title,
+      description,
+      price,
+      isFree,
+      thumbnail,
       videos: videos || [],
       pdfs: pdfs || [],
-      instructor: req.user.userId
+      instructor: req.user._id,
     });
+
     await course.save();
-    res.status(201).json({ message: '✅ Course created!', course });
+
+    // ✅ AUTO NOTIFICATION: new course launch sab users ko
+    await Notification.create({
+      title: '🚀 New Course Launched',
+      message: `"${course.title}" is now live on REHANVERSE. Check it out now!`,
+      type: 'course',
+      targetType: 'all',
+      courseId: course._id,
+      userId: null,
+      createdBy: req.user._id,
+    });
+
+    res.status(201).json({
+      message: '✅ Course created & notification sent!',
+      course,
+    });
   } catch (error) {
+    console.log('COURSE CREATE ERROR:', error);
     res.status(500).json({ message: 'Server error', error });
   }
 });
@@ -57,9 +88,17 @@ router.post('/', protect, adminOnly, async (req, res) => {
 // Course update karo (admin only)
 router.put('/:id', protect, adminOnly, async (req, res) => {
   try {
-    const course = await Course.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const course = await Course.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+    });
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
     res.json({ message: '✅ Course updated!', course });
   } catch (error) {
+    console.log('COURSE UPDATE ERROR:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -67,9 +106,15 @@ router.put('/:id', protect, adminOnly, async (req, res) => {
 // Course delete karo (admin only)
 router.delete('/:id', protect, adminOnly, async (req, res) => {
   try {
-    await Course.findByIdAndDelete(req.params.id);
+    const course = await Course.findByIdAndDelete(req.params.id);
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
     res.json({ message: '✅ Course deleted!' });
   } catch (error) {
+    console.log('COURSE DELETE ERROR:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
