@@ -152,6 +152,32 @@ router.put('/read-all', protect, async (req, res) => {
   }
 });
 
+// ✅ USER: HIDE/CLEAR MY READ NOTIFICATIONS
+router.put('/clear-read', protect, async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    await Notification.updateMany(
+      {
+        readBy: userId,
+        clearedBy: { $ne: userId },
+      },
+      {
+        $addToSet: { clearedBy: userId },
+      }
+    );
+
+    res.json({
+      message: 'Read notifications cleared successfully',
+    });
+  } catch (err) {
+    console.log('Clear read notifications error:', err);
+    res.status(500).json({
+      message: 'Server error while clearing read notifications',
+    });
+  }
+});
+
 // ✅ ADMIN: GET ALL NOTIFICATIONS
 router.get('/all', protect, adminOnly, async (req, res) => {
   try {
