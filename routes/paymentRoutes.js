@@ -191,7 +191,7 @@ router.put('/approve/:id', protect, async (req, res) => {
   }
 });
 
-// ✅ ADMIN: Reject payment
+// ✅ ADMIN: Reject payment + auto notification
 router.put('/reject/:id', protect, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
@@ -199,14 +199,36 @@ router.put('/reject/:id', protect, async (req, res) => {
     }
 
     const payment = await Payment.findById(req.params.id);
+
     if (!payment) {
       return res.status(404).json({ message: 'Payment not found!' });
     }
 
+    if (payment.status === 'rejected') {
+      return res.status(400).json({ message: 'Already rejected!' });
+    }
+
+    const course = await Course.findById(payment.course).select('title');
+
     payment.status = 'rejected';
     await payment.save();
 
-    res.json({ message: '❌ Payment rejected!' });
+    // ✅ AUTO NOTIFICATION: user ko payment rejected ka alert
+    await Notification.create({
+      title: '❌ Payment Rejected',
+      message: course
+        ? `Your payment proof for "${course.title}" was rejected. Please upload a clear screenshot again.`
+        : 'Your payment proof was rejected. Please upload a clear screenshot again.',
+      type: 'payment',
+      targetType: 'user',
+      userId: payment.user,
+      courseId: payment.course,
+      createdBy: req.user._id,
+    });
+
+    res.json({
+      message: '❌ Payment rejected & notification sent!',
+    });
   } catch (error) {
     console.error('PAYMENT REJECT ERROR:', error);
     res.status(500).json({ message: 'Server error!' });
