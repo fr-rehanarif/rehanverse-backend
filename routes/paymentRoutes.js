@@ -4,6 +4,7 @@ const path = require('path');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const Course = require('../models/Course');
+const Notification = require('../models/Notification');
 const { protect } = require('../middleware/authMiddleware');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -133,7 +134,7 @@ router.get('/all', protect, async (req, res) => {
   }
 });
 
-// ✅ ADMIN: Approve payment
+// ✅ ADMIN: Approve payment + auto notification
 router.put('/approve/:id', protect, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
@@ -149,17 +150,41 @@ router.put('/approve/:id', protect, async (req, res) => {
       return res.status(400).json({ message: 'Already approved!' });
     }
 
+    const course = await Course.findById(payment.course).select('title price');
+    const user = await User.findById(payment.user);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found!' });
+    }
+
     payment.status = 'approved';
     await payment.save();
 
-    const user = await User.findById(payment.user);
+    const alreadyEnrolled = user.enrolledCourses.some(
+      (courseId) => courseId.toString() === payment.course.toString()
+    );
 
-    if (user && !user.enrolledCourses.includes(payment.course)) {
+    if (!alreadyEnrolled) {
       user.enrolledCourses.push(payment.course);
       await user.save();
     }
 
-    res.json({ message: '✅ Payment approved & user enrolled!' });
+    // ✅ AUTO NOTIFICATION: user ko payment approved ka alert
+    await Notification.create({
+      title: '✅ Payment Approved',
+      message: course
+        ? `Your payment for "${course.title}" has been approved. Course unlocked successfully!`
+        : 'Your payment has been approved. Course unlocked successfully!',
+      type: 'payment',
+      targetType: 'user',
+      userId: payment.user,
+      courseId: payment.course,
+      createdBy: req.user._id,
+    });
+
+    res.json({
+      message: '✅ Payment approved, user enrolled & notification sent!',
+    });
   } catch (error) {
     console.error('PAYMENT APPROVE ERROR:', error);
     res.status(500).json({ message: 'Server error!' });
