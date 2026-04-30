@@ -18,6 +18,7 @@ const liveClassRoutes = require('./routes/liveClassRoutes');
 // ✅ MIDDLEWARE
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // 📁 uploads folder ensure karo
 const uploadsPath = path.join(__dirname, 'uploads');

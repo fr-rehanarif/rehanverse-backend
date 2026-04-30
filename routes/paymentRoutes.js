@@ -56,7 +56,7 @@ router.post('/request', protect, upload.single('screenshot'), async (req, res) =
     const payment = new Payment({
       user: req.user._id,
       course: courseId,
-      screenshot: `uploads/${req.file.filename}`,
+      screenshot: `/uploads/${req.file.filename}`,
       amount: course.price || 39,
       status: 'pending',
     });
