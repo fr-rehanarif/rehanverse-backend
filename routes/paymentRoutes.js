@@ -1,38 +1,48 @@
 const express = require('express');
 const multer = require('multer');
-const fs = require('fs');
 const path = require('path');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const Course = require('../models/Course');
 const { protect } = require('../middleware/authMiddleware');
+const { createClient } = require('@supabase/supabase-js');
 
 const router = express.Router();
 
-const uploadDir = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+// ✅ Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir);
+// ✅ Memory storage: file pehle RAM me aayegi, phir Supabase me upload hogi
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
   },
-  filename: function (req, file, cb) {
-    const uniqueName = Date.now() + '-' + file.originalname.replace(/\s+/g, '-');
-    cb(null, uniqueName);
+  fileFilter: function (req, file, cb) {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+
+    if (!allowedTypes.includes(file.mimetype)) {
+      return cb(new Error('Only JPG, PNG, JPEG, WEBP images allowed!'), false);
+    }
+
+    cb(null, true);
   },
 });
 
-const upload = multer({ storage });
-
+// ✅ USER: Payment request submit
 router.post('/request', protect, upload.single('screenshot'), async (req, res) => {
   try {
-    console.log("HEADERS CONTENT-TYPE:", req.headers["content-type"]);
-    console.log("BODY:", req.body);
-    console.log("FILE:", req.file);
+    console.log('PAYMENT BODY:', req.body);
+    console.log('PAYMENT FILE:', req.file);
 
     const { courseId } = req.body;
+
+    if (!courseId) {
+      return res.status(400).json({ message: 'Course ID zaroori hai!' });
+    }
 
     if (!req.file) {
       return res.status(400).json({ message: 'Screenshot zaroori hai!' });
@@ -53,22 +63,58 @@ router.post('/request', protect, upload.single('screenshot'), async (req, res) =
       return res.status(400).json({ message: 'Payment request already pending!' });
     }
 
+    // ✅ safe filename
+    const fileExt = path.extname(req.file.originalname) || '.png';
+    const safeName = req.file.originalname
+      .replace(/\s+/g, '-')
+      .replace(/[^a-zA-Z0-9.\-_]/g, '');
+
+    const fileName = `payment-${req.user._id}-${Date.now()}-${safeName || `proof${fileExt}`}`;
+
+    // ✅ Upload to Supabase bucket
+    const { data, error } = await supabase.storage
+      .from('payment-screenshots')
+      .upload(fileName, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: false,
+      });
+
+    if (error) {
+      console.error('SUPABASE PAYMENT UPLOAD ERROR:', error);
+      return res.status(500).json({
+        message: 'Screenshot Supabase upload failed!',
+        error: error.message,
+      });
+    }
+
+    // ✅ Public URL
+    const { data: publicUrlData } = supabase.storage
+      .from('payment-screenshots')
+      .getPublicUrl(data.path);
+
+    const screenshotUrl = publicUrlData.publicUrl;
+
     const payment = new Payment({
       user: req.user._id,
       course: courseId,
-      screenshot: `/uploads/${req.file.filename}`,
+      screenshot: screenshotUrl,
       amount: course.price || 39,
       status: 'pending',
     });
 
     await payment.save();
-    res.status(201).json({ message: '✅ Payment request submitted!' });
+
+    res.status(201).json({
+      message: '✅ Payment request submitted!',
+      payment,
+    });
   } catch (error) {
     console.error('PAYMENT REQUEST ERROR:', error);
     res.status(500).json({ message: error.message || 'Server error!' });
   }
 });
 
+// ✅ ADMIN: Get all payments
 router.get('/all', protect, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
@@ -82,11 +128,12 @@ router.get('/all', protect, async (req, res) => {
 
     res.json(payments);
   } catch (error) {
-    console.error(error);
+    console.error('PAYMENT ALL ERROR:', error);
     res.status(500).json({ message: 'Server error!' });
   }
 });
 
+// ✅ ADMIN: Approve payment
 router.put('/approve/:id', protect, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
@@ -106,6 +153,7 @@ router.put('/approve/:id', protect, async (req, res) => {
     await payment.save();
 
     const user = await User.findById(payment.user);
+
     if (user && !user.enrolledCourses.includes(payment.course)) {
       user.enrolledCourses.push(payment.course);
       await user.save();
@@ -113,11 +161,12 @@ router.put('/approve/:id', protect, async (req, res) => {
 
     res.json({ message: '✅ Payment approved & user enrolled!' });
   } catch (error) {
-    console.error(error);
+    console.error('PAYMENT APPROVE ERROR:', error);
     res.status(500).json({ message: 'Server error!' });
   }
 });
 
+// ✅ ADMIN: Reject payment
 router.put('/reject/:id', protect, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
@@ -134,7 +183,7 @@ router.put('/reject/:id', protect, async (req, res) => {
 
     res.json({ message: '❌ Payment rejected!' });
   } catch (error) {
-    console.error(error);
+    console.error('PAYMENT REJECT ERROR:', error);
     res.status(500).json({ message: 'Server error!' });
   }
 });
