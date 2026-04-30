@@ -5,13 +5,11 @@ const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
 
-// ✅ APP PEHLE BANAAO
+// ✅ APP INIT
 const app = express();
 
-//Tracker
+// ✅ ROUTES IMPORT
 const activityRoutes = require('./routes/activityRoutes');
-
-// ✅ ROUTES IMPORT BAAD ME
 const pdfRoutes = require('./routes/pdfRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
@@ -26,10 +24,10 @@ if (!fs.existsSync(uploadsPath)) {
   fs.mkdirSync(uploadsPath, { recursive: true });
 }
 
-// ✅ STATIC (images etc ke liye)
+// ✅ STATIC FILES
 app.use('/uploads', express.static(uploadsPath));
 
-// ✅ ROUTES USE KARO (app ke baad)
+// ✅ API ROUTES
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/reviews', require('./routes/reviewRoutes'));
@@ -39,6 +37,11 @@ app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/courses', require('./routes/courseRoutes'));
 app.use('/api/enroll', require('./routes/enrollRoutes'));
 app.use('/api/upload', uploadRoutes);
+
+// ✅ 🔥 HEALTH CHECK (IMPORTANT FOR RENDER + PING)
+app.get('/', (req, res) => {
+  res.status(200).send('Server is alive 🚀');
+});
 
 // ✅ DB CONNECT
 mongoose.connect(process.env.MONGO_URI)
