@@ -64,7 +64,6 @@ router.post('/', protect, adminOnly, async (req, res) => {
 
     await course.save();
 
-    // ✅ AUTO NOTIFICATION: new course launch sab users ko
     await Notification.create({
       title: '🚀 New Course Launched',
       message: `"${course.title}" is now live on REHANVERSE. Check it out now!`,
@@ -85,15 +84,59 @@ router.post('/', protect, adminOnly, async (req, res) => {
   }
 });
 
-// Course update karo (admin only)
+// Course update karo (admin only) + PDF/video auto notification
 router.put('/:id', protect, adminOnly, async (req, res) => {
   try {
+    const oldCourse = await Course.findById(req.params.id);
+
+    if (!oldCourse) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    const oldPdfCount = oldCourse.pdfs?.length || 0;
+    const oldVideoCount = oldCourse.videos?.length || 0;
+
     const course = await Course.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
     });
 
     if (!course) {
       return res.status(404).json({ message: 'Course not found' });
+    }
+
+    const newPdfCount = course.pdfs?.length || 0;
+    const newVideoCount = course.videos?.length || 0;
+
+    if (newPdfCount > oldPdfCount) {
+      const addedPdf = course.pdfs[newPdfCount - 1];
+
+      await Notification.create({
+        title: '📄 New Notes Added',
+        message: addedPdf?.title
+          ? `"${addedPdf.title}" has been added to "${course.title}".`
+          : `New notes have been added to "${course.title}".`,
+        type: 'pdf',
+        targetType: 'course',
+        courseId: course._id,
+        userId: null,
+        createdBy: req.user._id,
+      });
+    }
+
+    if (newVideoCount > oldVideoCount) {
+      const addedVideo = course.videos[newVideoCount - 1];
+
+      await Notification.create({
+        title: '🎥 New Video Added',
+        message: addedVideo?.title
+          ? `"${addedVideo.title}" has been added to "${course.title}".`
+          : `A new video has been added to "${course.title}".`,
+        type: 'video',
+        targetType: 'course',
+        courseId: course._id,
+        userId: null,
+        createdBy: req.user._id,
+      });
     }
 
     res.json({ message: '✅ Course updated!', course });
