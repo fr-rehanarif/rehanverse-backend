@@ -3,12 +3,14 @@ const router = express.Router();
 
 const LiveClass = require('../models/LiveClass');
 const User = require('../models/User');
+const Course = require('../models/Course');
+const Notification = require('../models/Notification');
 
 // ✅ IMPORTANT: agar tera authMiddleware export { protect, adminOnly } karta hai
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 
 /*
-  ✅ ADMIN: Create live class
+  ✅ ADMIN: Create live class + auto notification
   POST /api/live-classes
 */
 router.post('/', protect, adminOnly, async (req, res) => {
@@ -21,6 +23,8 @@ router.post('/', protect, adminOnly, async (req, res) => {
       });
     }
 
+    const courseData = await Course.findById(course).select('title');
+
     const liveClass = await LiveClass.create({
       course,
       title,
@@ -30,8 +34,21 @@ router.post('/', protect, adminOnly, async (req, res) => {
       durationMinutes: durationMinutes || 60,
     });
 
+    // ✅ AUTO NOTIFICATION: sirf is course ke enrolled students ko dikhegi
+    await Notification.create({
+      title: '🔴 New Live Class Scheduled',
+      message: courseData
+        ? `"${title}" live class has been scheduled for "${courseData.title}".`
+        : `"${title}" live class has been scheduled.`,
+      type: 'live',
+      targetType: 'course',
+      courseId: course,
+      userId: null,
+      createdBy: req.user._id,
+    });
+
     res.status(201).json({
-      message: 'Live class created successfully',
+      message: 'Live class created successfully & notification sent',
       liveClass,
     });
   } catch (err) {
@@ -69,7 +86,8 @@ router.get('/join/:id', protect, async (req, res) => {
       return res.status(404).json({ message: 'Live class not found' });
     }
 
-    const user = await User.findById(req.user.id || req.user.userId);
+    // ✅ FIX: authMiddleware me req.user full user object hai, isliye req.user._id best hai
+    const user = await User.findById(req.user._id);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
