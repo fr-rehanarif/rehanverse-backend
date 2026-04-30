@@ -14,6 +14,7 @@ const pdfRoutes = require('./routes/pdfRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const liveClassRoutes = require('./routes/liveClassRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 // ✅ MIDDLEWARE
 app.use(cors());
@@ -40,6 +41,7 @@ app.use('/api/courses', require('./routes/courseRoutes'));
 app.use('/api/enroll', require('./routes/enrollRoutes'));
 app.use('/api/upload', uploadRoutes);
 app.use('/api/live-classes', liveClassRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // ✅ 🔥 HEALTH CHECK (IMPORTANT FOR RENDER + PING)
 app.get('/', (req, res) => {
