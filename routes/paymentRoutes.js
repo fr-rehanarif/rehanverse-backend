@@ -4,6 +4,7 @@ const path = require('path');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
 const Course = require('../models/Course');
+const Coupon = require('../models/Coupon');
 const Notification = require('../models/Notification');
 const { protect } = require('../middleware/authMiddleware');
 const { createClient } = require('@supabase/supabase-js');
@@ -33,13 +34,58 @@ const upload = multer({
   },
 });
 
+// ✅ Helper: user id safely nikalne ke liye
+const getUserId = (req) => {
+  return req.user?._id || req.user?.id || req.user?.userId;
+};
+
+// ✅ Helper: coupon price calculate karne ke liye
+const calculateCouponPrice = (coursePrice, coupon) => {
+  const originalPrice = Number(coursePrice || 0);
+  let discountAmount = 0;
+  let finalPrice = originalPrice;
+
+  if (coupon.discountType === 'free') {
+    discountAmount = originalPrice;
+    finalPrice = 0;
+  }
+
+  if (coupon.discountType === 'percentage') {
+    const percentage = Number(coupon.discountValue || 0);
+    discountAmount = Math.floor((originalPrice * percentage) / 100);
+    finalPrice = originalPrice - discountAmount;
+  }
+
+  if (coupon.discountType === 'fixed') {
+    discountAmount = Number(coupon.discountValue || 0);
+    finalPrice = originalPrice - discountAmount;
+  }
+
+  if (discountAmount < 0) discountAmount = 0;
+  if (discountAmount > originalPrice) discountAmount = originalPrice;
+  if (finalPrice < 0) finalPrice = 0;
+
+  return {
+    originalPrice,
+    discountAmount,
+    finalPrice,
+    isFreeByCoupon: finalPrice === 0,
+  };
+};
+
 // ✅ USER: Payment request submit
 router.post('/request', protect, upload.single('screenshot'), async (req, res) => {
   try {
     console.log('PAYMENT BODY:', req.body);
     console.log('PAYMENT FILE:', req.file);
 
-    const { courseId } = req.body;
+    const userId = getUserId(req);
+
+    if (!userId) {
+      return res.status(401).json({ message: 'User not authorized!' });
+    }
+
+    const { courseId, couponCode } = req.body;
 
     if (!courseId) {
       return res.status(400).json({ message: 'Course ID zaroori hai!' });
@@ -54,8 +100,21 @@ router.post('/request', protect, upload.single('screenshot'), async (req, res) =
       return res.status(404).json({ message: 'Course not found!' });
     }
 
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found!' });
+    }
+
+    const alreadyEnrolled = user.enrolledCourses.some(
+      (id) => id.toString() === courseId.toString()
+    );
+
+    if (alreadyEnrolled) {
+      return res.status(400).json({ message: 'Already enrolled in this course!' });
+    }
+
     const existing = await Payment.findOne({
-      user: req.user._id,
+      user: userId,
       course: courseId,
       status: 'pending',
     });
@@ -64,13 +123,66 @@ router.post('/request', protect, upload.single('screenshot'), async (req, res) =
       return res.status(400).json({ message: 'Payment request already pending!' });
     }
 
+    let originalPrice = Number(course.price || 39);
+    let finalPrice = Number(course.price || 39);
+    let discountAmount = 0;
+    let cleanCouponCode = '';
+    let appliedCoupon = null;
+
+    // ✅ Coupon support for discounted payment
+    if (couponCode && String(couponCode).trim() !== '') {
+      appliedCoupon = await Coupon.findOne({
+        code: String(couponCode).toUpperCase().trim(),
+        isActive: true,
+      });
+
+      if (!appliedCoupon) {
+        return res.status(400).json({ message: 'Invalid coupon code!' });
+      }
+
+      if (appliedCoupon.expiresAt && new Date(appliedCoupon.expiresAt) < new Date()) {
+        return res.status(400).json({ message: 'Coupon has expired!' });
+      }
+
+      if (
+        appliedCoupon.usageLimit > 0 &&
+        appliedCoupon.usedCount >= appliedCoupon.usageLimit
+      ) {
+        return res.status(400).json({ message: 'Coupon usage limit reached!' });
+      }
+
+      if (
+        appliedCoupon.course &&
+        appliedCoupon.course.toString() !== courseId.toString()
+      ) {
+        return res.status(400).json({
+          message: 'This coupon is not valid for this course!',
+        });
+      }
+
+      const priceData = calculateCouponPrice(course.price || 39, appliedCoupon);
+
+      originalPrice = priceData.originalPrice;
+      discountAmount = priceData.discountAmount;
+      finalPrice = priceData.finalPrice;
+      cleanCouponCode = appliedCoupon.code;
+
+      // ✅ Free coupon wale case mein payment screenshot nahi lena
+      if (priceData.isFreeByCoupon) {
+        return res.status(400).json({
+          message: 'This coupon makes course free. Use direct enroll instead!',
+          isFreeByCoupon: true,
+        });
+      }
+    }
+
     // ✅ safe filename
     const fileExt = path.extname(req.file.originalname) || '.png';
     const safeName = req.file.originalname
       .replace(/\s+/g, '-')
       .replace(/[^a-zA-Z0-9.\-_]/g, '');
 
-    const fileName = `payment-${req.user._id}-${Date.now()}-${safeName || `proof${fileExt}`}`;
+    const fileName = `payment-${userId}-${Date.now()}-${safeName || `proof${fileExt}`}`;
 
     // ✅ Upload to Supabase bucket
     const { data, error } = await supabase.storage
@@ -96,10 +208,14 @@ router.post('/request', protect, upload.single('screenshot'), async (req, res) =
     const screenshotUrl = publicUrlData.publicUrl;
 
     const payment = new Payment({
-      user: req.user._id,
+      user: userId,
       course: courseId,
       screenshot: screenshotUrl,
-      amount: course.price || 39,
+      amount: finalPrice,
+      originalPrice,
+      finalPrice,
+      discountAmount,
+      couponCode: cleanCouponCode,
       status: 'pending',
     });
 
@@ -167,6 +283,14 @@ router.put('/approve/:id', protect, async (req, res) => {
     if (!alreadyEnrolled) {
       user.enrolledCourses.push(payment.course);
       await user.save();
+    }
+
+    // ✅ Coupon used count increase only after admin approval
+    if (payment.couponCode && String(payment.couponCode).trim() !== '') {
+      await Coupon.findOneAndUpdate(
+        { code: String(payment.couponCode).toUpperCase().trim() },
+        { $inc: { usedCount: 1 } }
+      );
     }
 
     // ✅ AUTO NOTIFICATION: user ko payment approved ka alert

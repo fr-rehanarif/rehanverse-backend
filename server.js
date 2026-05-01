@@ -12,6 +12,7 @@ const app = express();
 const activityRoutes = require('./routes/activityRoutes');
 const pdfRoutes = require('./routes/pdfRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const couponRoutes = require('./routes/couponRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const liveClassRoutes = require('./routes/liveClassRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
@@ -33,6 +34,7 @@ app.use('/uploads', express.static(uploadsPath));
 // ✅ API ROUTES
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/coupon', couponRoutes);
 app.use('/api/reviews', require('./routes/reviewRoutes'));
 app.use('/api/activity', activityRoutes);
 app.use('/api/users', require('./routes/userRoutes'));
