@@ -1,11 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
-const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 
 const upload = require('../middleware/upload');
-const addWatermark = require('../utils/addWatermark');
 const { protect } = require('../middleware/authMiddleware');
 
 const supabase = createClient(
@@ -13,11 +11,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ✅ PDF UPLOAD + WATERMARK + SUPABASE
+// ✅ PDF UPLOAD CLEAN + SUPABASE
+// IMPORTANT:
+// User-specific watermark upload time pe mat lagao.
+// Dynamic user watermark PDF view/open time pe lagega.
 router.post('/pdf', protect, upload.single('pdf'), async (req, res) => {
   try {
     console.log('PDF FILE:', req.file);
-    console.log('WATERMARK USER:', req.user);
+    console.log('UPLOAD USER:', req.user);
 
     if (!req.file) {
       return res.status(400).json({ message: 'No PDF uploaded' });
@@ -25,27 +26,25 @@ router.post('/pdf', protect, upload.single('pdf'), async (req, res) => {
 
     const inputPath = req.file.path;
 
-    const watermarkedFilename = `watermarked-${Date.now()}-${req.file.originalname.replace(/\s+/g, '-')}`;
-    const outputPath = path.join('uploads', watermarkedFilename);
+    const cleanFilename = `clean-${Date.now()}-${req.file.originalname.replace(/\s+/g, '-')}`;
 
-    // ✅ Add watermark with logged-in user details
-    await addWatermark(inputPath, outputPath, {
-      name: req.user?.name || 'REHANVERSE USER',
-      email: req.user?.email || 'protected@rehanverse.com',
-    });
+    const fileBuffer = fs.readFileSync(inputPath);
 
-    const fileBuffer = fs.readFileSync(outputPath);
-
-    // ✅ Upload watermarked PDF to Supabase
+    // ✅ Upload original/clean PDF to Supabase
     const { error } = await supabase.storage
       .from('course-pdfs')
-      .upload(watermarkedFilename, fileBuffer, {
+      .upload(cleanFilename, fileBuffer, {
         contentType: 'application/pdf',
         upsert: false,
       });
 
     if (error) {
       console.log('SUPABASE UPLOAD ERROR:', error);
+
+      if (fs.existsSync(inputPath)) {
+        fs.unlinkSync(inputPath);
+      }
+
       return res.status(500).json({
         message: 'Supabase upload failed',
         error: error.message,
@@ -54,19 +53,21 @@ router.post('/pdf', protect, upload.single('pdf'), async (req, res) => {
 
     const { data } = supabase.storage
       .from('course-pdfs')
-      .getPublicUrl(watermarkedFilename);
+      .getPublicUrl(cleanFilename);
 
-    // ✅ temp files delete
-    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    // ✅ temp local file delete
+    if (fs.existsSync(inputPath)) {
+      fs.unlinkSync(inputPath);
+    }
 
     res.json({
-      message: 'PDF uploaded with watermark',
-      filename: watermarkedFilename,
+      message: 'PDF uploaded successfully',
+      filename: cleanFilename,
       url: data.publicUrl,
     });
   } catch (error) {
     console.log('PDF upload error:', error);
+
     res.status(500).json({
       message: 'PDF upload failed',
       error: error.message,

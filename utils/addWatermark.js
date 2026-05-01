@@ -10,11 +10,15 @@ async function addWatermark(inputPath, outputPath, user = {}) {
   const normalFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
   const logoPath = path.join(__dirname, '../assets/rehanverse-logo.png');
-  const logoBytes = fs.readFileSync(logoPath);
-  const logoImage = await pdfDoc.embedPng(logoBytes);
 
-  const username = user.name || 'REHANVERSE USER';
-  const email = user.email || 'protected@rehanverse.com';
+  let logoImage = null;
+  if (fs.existsSync(logoPath)) {
+    const logoBytes = fs.readFileSync(logoPath);
+    logoImage = await pdfDoc.embedPng(logoBytes);
+  }
+
+  const username = user?.name || user?.fullName || 'REHANVERSE USER';
+  const email = user?.email || 'protected@rehanverse.com';
 
   const pages = pdfDoc.getPages();
 
@@ -25,7 +29,6 @@ async function addWatermark(inputPath, outputPath, user = {}) {
     const purple = rgb(0.45, 0.22, 0.95);
     const blue = rgb(0.25, 0.35, 1);
 
-    // ✅ username - bohot upar + bigger + darker
     page.drawText(username, {
       x: centerX - boldFont.widthOfTextAtSize(username, 24) / 2,
       y: height * 0.84,
@@ -35,7 +38,6 @@ async function addWatermark(inputPath, outputPath, user = {}) {
       opacity: 0.34,
     });
 
-    // ✅ REHANVERSE - logo se upar, overlap nahi karega
     const brand = 'R E H A N V E R S E';
     page.drawText(brand, {
       x: centerX - boldFont.widthOfTextAtSize(brand, 32) / 2,
@@ -46,19 +48,19 @@ async function addWatermark(inputPath, outputPath, user = {}) {
       opacity: 0.30,
     });
 
-    // ✅ logo center - thoda niche, readable but document disturb nahi karega
-    const logoWidth = width * 0.58;
-    const logoHeight = logoWidth * (logoImage.height / logoImage.width);
+    if (logoImage) {
+      const logoWidth = width * 0.58;
+      const logoHeight = logoWidth * (logoImage.height / logoImage.width);
 
-    page.drawImage(logoImage, {
-      x: centerX - logoWidth / 2,
-      y: height * 0.36,
-      width: logoWidth,
-      height: logoHeight,
-      opacity: 0.15,
-    });
+      page.drawImage(logoImage, {
+        x: centerX - logoWidth / 2,
+        y: height * 0.36,
+        width: logoWidth,
+        height: logoHeight,
+        opacity: 0.15,
+      });
+    }
 
-    // ✅ email - bohot niche + bigger + darker
     page.drawText(email, {
       x: centerX - normalFont.widthOfTextAtSize(email, 20) / 2,
       y: height * 0.13,

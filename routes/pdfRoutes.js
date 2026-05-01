@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const { PDFDocument, rgb, degrees, StandardFonts } = require('pdf-lib');
+const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 
 const { protect } = require('../middleware/authMiddleware');
 
-// POST /api/pdf/view
+// ✅ POST /api/pdf/view
+// Body: { pdfUrl }
+// This creates dynamic watermark using current logged-in user
 router.post('/view', protect, async (req, res) => {
   try {
     const { pdfUrl } = req.body;
@@ -14,63 +16,95 @@ router.post('/view', protect, async (req, res) => {
       return res.status(400).json({ message: 'PDF URL required' });
     }
 
+    console.log('PDF VIEW USER:', req.user);
+    console.log('PDF URL:', pdfUrl);
+
+    // ✅ Download clean PDF from Supabase/public URL
     const response = await axios.get(pdfUrl, {
       responseType: 'arraybuffer',
     });
 
     const pdfDoc = await PDFDocument.load(response.data);
-    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    const userName = req.user?.name || 'User';
-    const userEmail = req.user?.email || 'protected-user';
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const normalFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+    // ✅ Current logged-in user details
+    const userName =
+      req.user?.name ||
+      req.user?.fullName ||
+      req.user?.username ||
+      'REHANVERSE USER';
+
+    const userEmail =
+      req.user?.email ||
+      'protected@rehanverse.com';
 
     pdfDoc.getPages().forEach((page) => {
       const { width, height } = page.getSize();
+      const centerX = width / 2;
 
-      // ✅ Premium circular/stamp-style watermark
-      const centerX = width * 0.5;
-      const centerY = height * 0.52;
+      const purple = rgb(0.45, 0.22, 0.95);
+      const blue = rgb(0.25, 0.35, 1);
 
-      page.drawText('REHANVERSE', {
-        x: centerX - 95,
-        y: centerY + 20,
-        size: 34,
-        font,
-        color: rgb(1, 0, 0),
-        opacity: 0.09,
-        rotate: degrees(-18),
+      // ✅ USER NAME - REHANVERSE ke upar
+      page.drawText(userName, {
+        x: centerX - boldFont.widthOfTextAtSize(userName, 24) / 2,
+        y: height * 0.84,
+        size: 24,
+        font: boldFont,
+        color: purple,
+        opacity: 0.34,
       });
 
-      page.drawText('PROTECTED CONTENT', {
-        x: centerX - 118,
-        y: centerY - 18,
+      // ✅ BRAND - center upper area
+      const brand = 'R E H A N V E R S E';
+
+      page.drawText(brand, {
+        x: centerX - boldFont.widthOfTextAtSize(brand, 32) / 2,
+        y: height * 0.68,
+        size: 32,
+        font: boldFont,
+        color: purple,
+        opacity: 0.30,
+      });
+
+      // ✅ Protected content text - middle
+      const protectedText = 'PROTECTED CONTENT';
+
+      page.drawText(protectedText, {
+        x: centerX - boldFont.widthOfTextAtSize(protectedText, 18) / 2,
+        y: height * 0.50,
         size: 18,
-        font,
-        color: rgb(1, 0, 0),
-        opacity: 0.08,
-        rotate: degrees(-18),
+        font: boldFont,
+        color: purple,
+        opacity: 0.22,
       });
 
-      page.drawText(`${userName} • ${userEmail}`, {
-        x: centerX - 140,
-        y: centerY - 48,
-        size: 12,
-        font,
-        color: rgb(1, 0, 0),
-        opacity: 0.07,
-        rotate: degrees(-18),
+      // ✅ EMAIL - bottom
+      page.drawText(userEmail, {
+        x: centerX - normalFont.widthOfTextAtSize(userEmail, 20) / 2,
+        y: height * 0.13,
+        size: 20,
+        font: normalFont,
+        color: blue,
+        opacity: 0.34,
       });
     });
 
     const watermarkedPdf = await pdfDoc.save();
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename="rehanverse-notes.pdf"');
+    res.setHeader(
+      'Content-Disposition',
+      'inline; filename="rehanverse-protected-notes.pdf"'
+    );
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
 
     return res.send(Buffer.from(watermarkedPdf));
   } catch (err) {
     console.log('PDF route error:', err);
+
     return res.status(500).json({
       message: 'PDF server error',
       error: err.message,
