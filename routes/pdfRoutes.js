@@ -1,13 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 
 const { protect } = require('../middleware/authMiddleware');
 
 // ✅ POST /api/pdf/view
 // Body: { pdfUrl }
-// This creates dynamic watermark using current logged-in user
+// Dynamic watermark using current logged-in user + REHANVERSE logo
 router.post('/view', protect, async (req, res) => {
   try {
     const { pdfUrl } = req.body;
@@ -29,6 +31,19 @@ router.post('/view', protect, async (req, res) => {
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const normalFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
+    // ✅ Logo path
+    const logoPath = path.join(__dirname, '../assets/rehanverse-logo.png');
+
+    let logoImage = null;
+
+    if (fs.existsSync(logoPath)) {
+      const logoBytes = fs.readFileSync(logoPath);
+      logoImage = await pdfDoc.embedPng(logoBytes);
+      console.log('✅ REHANVERSE logo loaded successfully');
+    } else {
+      console.log('❌ Logo not found at:', logoPath);
+    }
+
     // ✅ Current logged-in user details
     const userName =
       req.user?.name ||
@@ -47,45 +62,59 @@ router.post('/view', protect, async (req, res) => {
       const purple = rgb(0.45, 0.22, 0.95);
       const blue = rgb(0.25, 0.35, 1);
 
-      // ✅ USER NAME - REHANVERSE ke upar
+      // ✅ USER NAME - top
       page.drawText(userName, {
         x: centerX - boldFont.widthOfTextAtSize(userName, 24) / 2,
-        y: height * 0.84,
+        y: height * 0.82,
         size: 24,
         font: boldFont,
         color: purple,
         opacity: 0.34,
       });
 
-      // ✅ BRAND - center upper area
+      // ✅ BRAND TEXT
       const brand = 'R E H A N V E R S E';
 
       page.drawText(brand, {
-        x: centerX - boldFont.widthOfTextAtSize(brand, 32) / 2,
-        y: height * 0.68,
-        size: 32,
+        x: centerX - boldFont.widthOfTextAtSize(brand, 34) / 2,
+        y: height * 0.62,
+        size: 34,
         font: boldFont,
         color: purple,
         opacity: 0.30,
       });
 
-      // ✅ Protected content text - middle
-      const protectedText = 'PROTECTED CONTENT';
+      // ✅ LOGO CENTER WATERMARK
+      if (logoImage) {
+        const logoWidth = width * 0.46;
+        const logoHeight = logoWidth * (logoImage.height / logoImage.width);
+
+        page.drawImage(logoImage, {
+          x: centerX - logoWidth / 2,
+          y: height * 0.34,
+          width: logoWidth,
+          height: logoHeight,
+          opacity: 0.14,
+        });
+      }
+
+      // ✅ PROTECTED TEXT
+      const protectedText = 'Protected Content';
 
       page.drawText(protectedText, {
         x: centerX - boldFont.widthOfTextAtSize(protectedText, 18) / 2,
-        y: height * 0.50,
+        y: height * 0.27,
         size: 18,
         font: boldFont,
         color: purple,
-        opacity: 0.22,
+        opacity: 0.20,
       });
 
       // ✅ EMAIL - bottom
       page.drawText(userEmail, {
-        x: centerX - normalFont.widthOfTextAtSize(userEmail, 20) / 2,
-        y: height * 0.13,
-        size: 20,
+        x: centerX - normalFont.widthOfTextAtSize(userEmail, 18) / 2,
+        y: height * 0.12,
+        size: 18,
         font: normalFont,
         color: blue,
         opacity: 0.34,
