@@ -1,10 +1,11 @@
 const mongoose = require('mongoose');
 
-const openedContentSchema = new mongoose.Schema(
+const contentSchema = new mongoose.Schema(
   {
     title: { type: String, default: '' },
     url: { type: String, default: '' },
     openedAt: { type: Date, default: Date.now },
+    completedAt: { type: Date, default: null },
   },
   { _id: false }
 );
@@ -25,8 +26,13 @@ const progressSchema = new mongoose.Schema(
       index: true,
     },
 
-    openedVideos: [openedContentSchema],
-    openedPdfs: [openedContentSchema],
+    // ✅ sirf open/visited tracking
+    openedVideos: [contentSchema],
+    openedPdfs: [contentSchema],
+
+    // ✅ real completion tracking
+    completedVideos: [contentSchema],
+    completedPdfs: [contentSchema],
 
     lastOpenedAt: { type: Date, default: null },
     lastOpenedType: {

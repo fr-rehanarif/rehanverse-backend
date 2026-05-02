@@ -6,8 +6,7 @@ const Course = require('../models/Course');
 const { protect } = require('../middleware/authMiddleware');
 
 function getTodayKey() {
-  const now = new Date();
-  return now.toISOString().split('T')[0];
+  return new Date().toISOString().split('T')[0];
 }
 
 function getYesterdayKey() {
@@ -26,9 +25,7 @@ function updateStreak(progress) {
     return;
   }
 
-  if (progress.lastStudyDate === today) {
-    return;
-  }
+  if (progress.lastStudyDate === today) return;
 
   if (progress.lastStudyDate === yesterday) {
     progress.streakCount = (progress.streakCount || 0) + 1;
@@ -40,6 +37,21 @@ function updateStreak(progress) {
   progress.lastStudyDate = today;
 }
 
+function addOrUpdate(list, item, dateField = 'openedAt') {
+  const index = list.findIndex((x) => x.url === item.url);
+
+  if (index === -1) {
+    list.push({
+      title: item.title || '',
+      url: item.url || '',
+      [dateField]: new Date(),
+    });
+  } else {
+    list[index].title = item.title || list[index].title;
+    list[index][dateField] = new Date();
+  }
+}
+
 function calculateProgress(course, progress) {
   const totalVideos = course.videos?.length || 0;
   const totalPdfs = course.pdfs?.length || 0;
@@ -47,38 +59,36 @@ function calculateProgress(course, progress) {
 
   if (totalItems === 0) return 0;
 
-  const openedVideoUrls = new Set((progress.openedVideos || []).map((v) => v.url));
-  const openedPdfUrls = new Set((progress.openedPdfs || []).map((p) => p.url));
+  const completedVideoUrls = new Set((progress.completedVideos || []).map((v) => v.url));
+  const completedPdfUrls = new Set((progress.completedPdfs || []).map((p) => p.url));
 
-  const completedItems = openedVideoUrls.size + openedPdfUrls.size;
+  const completedItems = completedVideoUrls.size + completedPdfUrls.size;
 
   return Math.min(100, Math.round((completedItems / totalItems) * 100));
 }
 
-// ✅ Track real user activity
-// POST /api/progress/track
+// ✅ POST /api/progress/track
+// action: "open" or "complete"
 router.post('/track', protect, async (req, res) => {
   try {
-    const { courseId, type, title, url } = req.body;
+    const { courseId, type, title, url, action = 'open' } = req.body;
 
     if (!courseId || !type) {
-      return res.status(400).json({
-        message: 'courseId and type are required',
-      });
+      return res.status(400).json({ message: 'courseId and type are required' });
     }
 
     if (!['course', 'video', 'pdf'].includes(type)) {
-      return res.status(400).json({
-        message: 'Invalid progress type',
-      });
+      return res.status(400).json({ message: 'Invalid progress type' });
+    }
+
+    if (!['open', 'complete'].includes(action)) {
+      return res.status(400).json({ message: 'Invalid progress action' });
     }
 
     const course = await Course.findById(courseId);
 
     if (!course) {
-      return res.status(404).json({
-        message: 'Course not found',
-      });
+      return res.status(404).json({ message: 'Course not found' });
     }
 
     let progress = await Progress.findOne({
@@ -92,12 +102,14 @@ router.post('/track', protect, async (req, res) => {
         course: courseId,
         openedVideos: [],
         openedPdfs: [],
+        completedVideos: [],
+        completedPdfs: [],
       });
     }
 
     const now = new Date();
 
-    // ✅ streak sirf actual learning activity pe update hoga
+    // ✅ streak open/complete dono pe update hoga because both are real study actions
     updateStreak(progress);
 
     progress.lastOpenedAt = now;
@@ -106,44 +118,18 @@ router.post('/track', protect, async (req, res) => {
       title || (type === 'course' ? course.title : 'Course Content');
 
     if (type === 'video' && url) {
-      const alreadyOpened = progress.openedVideos.some((v) => v.url === url);
+      addOrUpdate(progress.openedVideos, { title, url }, 'openedAt');
 
-      if (!alreadyOpened) {
-        progress.openedVideos.push({
-          title: title || 'Video',
-          url,
-          openedAt: now,
-        });
-      } else {
-        progress.openedVideos = progress.openedVideos.map((v) =>
-          v.url === url
-            ? {
-                ...v.toObject?.() || v,
-                openedAt: now,
-              }
-            : v
-        );
+      if (action === 'complete') {
+        addOrUpdate(progress.completedVideos, { title, url }, 'completedAt');
       }
     }
 
     if (type === 'pdf' && url) {
-      const alreadyOpened = progress.openedPdfs.some((p) => p.url === url);
+      addOrUpdate(progress.openedPdfs, { title, url }, 'openedAt');
 
-      if (!alreadyOpened) {
-        progress.openedPdfs.push({
-          title: title || 'PDF',
-          url,
-          openedAt: now,
-        });
-      } else {
-        progress.openedPdfs = progress.openedPdfs.map((p) =>
-          p.url === url
-            ? {
-                ...p.toObject?.() || p,
-                openedAt: now,
-              }
-            : p
-        );
+      if (action === 'complete') {
+        addOrUpdate(progress.completedPdfs, { title, url }, 'completedAt');
       }
     }
 
@@ -152,24 +138,23 @@ router.post('/track', protect, async (req, res) => {
     const progressPercent = calculateProgress(course, progress);
 
     res.json({
-      message: 'Progress tracked successfully',
+      message:
+        action === 'complete'
+          ? 'Content marked as done'
+          : 'Content opened successfully',
       progressPercent,
       progress,
     });
   } catch (err) {
     console.log('PROGRESS TRACK ERROR:', err);
-    res.status(500).json({
-      message: 'Progress tracking failed',
-    });
+    res.status(500).json({ message: 'Progress tracking failed' });
   }
 });
 
-// ✅ Get progress for all enrolled courses
-// GET /api/progress/my-courses
+// ✅ GET /api/progress/my-courses
 router.get('/my-courses', protect, async (req, res) => {
   try {
     const user = req.user;
-
     await user.populate('enrolledCourses');
 
     const courses = user.enrolledCourses || [];
@@ -192,13 +177,12 @@ router.get('/my-courses', protect, async (req, res) => {
       const totalPdfs = course.pdfs?.length || 0;
       const totalItems = totalVideos + totalPdfs;
 
-      const openedVideos = progress?.openedVideos || [];
-      const openedPdfs = progress?.openedPdfs || [];
+      const openedVideoUrls = new Set((progress?.openedVideos || []).map((v) => v.url));
+      const openedPdfUrls = new Set((progress?.openedPdfs || []).map((p) => p.url));
+      const completedVideoUrls = new Set((progress?.completedVideos || []).map((v) => v.url));
+      const completedPdfUrls = new Set((progress?.completedPdfs || []).map((p) => p.url));
 
-      const openedVideoUrls = new Set(openedVideos.map((v) => v.url));
-      const openedPdfUrls = new Set(openedPdfs.map((p) => p.url));
-
-      const completedItems = openedVideoUrls.size + openedPdfUrls.size;
+      const completedItems = completedVideoUrls.size + completedPdfUrls.size;
 
       const progressPercent =
         totalItems === 0 ? 0 : Math.min(100, Math.round((completedItems / totalItems) * 100));
@@ -207,10 +191,17 @@ router.get('/my-courses', protect, async (req, res) => {
         course,
         progress: {
           progressPercent,
+
+          openedItems: openedVideoUrls.size + openedPdfUrls.size,
           completedItems,
           totalItems,
+
           openedVideosCount: openedVideoUrls.size,
           openedPdfsCount: openedPdfUrls.size,
+
+          completedVideosCount: completedVideoUrls.size,
+          completedPdfsCount: completedPdfUrls.size,
+
           streakCount: progress?.streakCount || 0,
           lastStudyDate: progress?.lastStudyDate || '',
           lastOpenedAt: progress?.lastOpenedAt || null,
@@ -223,14 +214,11 @@ router.get('/my-courses', protect, async (req, res) => {
     res.json(data);
   } catch (err) {
     console.log('MY COURSE PROGRESS ERROR:', err);
-    res.status(500).json({
-      message: 'Failed to load course progress',
-    });
+    res.status(500).json({ message: 'Failed to load course progress' });
   }
 });
 
-// ✅ Get progress of single course
-// GET /api/progress/course/:courseId
+// ✅ GET /api/progress/course/:courseId
 router.get('/course/:courseId', protect, async (req, res) => {
   try {
     const { courseId } = req.params;
@@ -238,9 +226,7 @@ router.get('/course/:courseId', protect, async (req, res) => {
     const course = await Course.findById(courseId);
 
     if (!course) {
-      return res.status(404).json({
-        message: 'Course not found',
-      });
+      return res.status(404).json({ message: 'Course not found' });
     }
 
     const progress = await Progress.findOne({
@@ -248,13 +234,20 @@ router.get('/course/:courseId', protect, async (req, res) => {
       course: courseId,
     });
 
+    const totalItems = (course.videos?.length || 0) + (course.pdfs?.length || 0);
+
     if (!progress) {
       return res.json({
         progressPercent: 0,
+        openedItems: 0,
         completedItems: 0,
-        totalItems: (course.videos?.length || 0) + (course.pdfs?.length || 0),
+        totalItems,
         openedVideosCount: 0,
         openedPdfsCount: 0,
+        completedVideosCount: 0,
+        completedPdfsCount: 0,
+        completedVideoUrls: [],
+        completedPdfUrls: [],
         streakCount: 0,
         lastStudyDate: '',
         lastOpenedAt: null,
@@ -263,16 +256,30 @@ router.get('/course/:courseId', protect, async (req, res) => {
       });
     }
 
+    const openedVideoUrls = new Set((progress.openedVideos || []).map((v) => v.url));
+    const openedPdfUrls = new Set((progress.openedPdfs || []).map((p) => p.url));
+    const completedVideoUrls = new Set((progress.completedVideos || []).map((v) => v.url));
+    const completedPdfUrls = new Set((progress.completedPdfs || []).map((p) => p.url));
+
+    const completedItems = completedVideoUrls.size + completedPdfUrls.size;
     const progressPercent = calculateProgress(course, progress);
 
     res.json({
       progressPercent,
-      completedItems:
-        new Set((progress.openedVideos || []).map((v) => v.url)).size +
-        new Set((progress.openedPdfs || []).map((p) => p.url)).size,
-      totalItems: (course.videos?.length || 0) + (course.pdfs?.length || 0),
-      openedVideosCount: new Set((progress.openedVideos || []).map((v) => v.url)).size,
-      openedPdfsCount: new Set((progress.openedPdfs || []).map((p) => p.url)).size,
+
+      openedItems: openedVideoUrls.size + openedPdfUrls.size,
+      completedItems,
+      totalItems,
+
+      openedVideosCount: openedVideoUrls.size,
+      openedPdfsCount: openedPdfUrls.size,
+
+      completedVideosCount: completedVideoUrls.size,
+      completedPdfsCount: completedPdfUrls.size,
+
+      completedVideoUrls: Array.from(completedVideoUrls),
+      completedPdfUrls: Array.from(completedPdfUrls),
+
       streakCount: progress.streakCount || 0,
       lastStudyDate: progress.lastStudyDate || '',
       lastOpenedAt: progress.lastOpenedAt || null,
@@ -281,9 +288,7 @@ router.get('/course/:courseId', protect, async (req, res) => {
     });
   } catch (err) {
     console.log('SINGLE COURSE PROGRESS ERROR:', err);
-    res.status(500).json({
-      message: 'Failed to load course progress',
-    });
+    res.status(500).json({ message: 'Failed to load course progress' });
   }
 });
 
