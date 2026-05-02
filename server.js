@@ -16,6 +16,7 @@ const couponRoutes = require('./routes/couponRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const liveClassRoutes = require('./routes/liveClassRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const progressRoutes = require('./routes/progressRoutes');
 
 // ✅ MIDDLEWARE
 app.use(cors());
@@ -44,6 +45,7 @@ app.use('/api/enroll', require('./routes/enrollRoutes'));
 app.use('/api/upload', uploadRoutes);
 app.use('/api/live-classes', liveClassRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/progress', progressRoutes);
 
 // ✅ 🔥 HEALTH CHECK (IMPORTANT FOR RENDER + PING)
 app.get('/', (req, res) => {
