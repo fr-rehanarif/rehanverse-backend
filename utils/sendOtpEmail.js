@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 const sendOtpEmail = async (email, otp, purpose = 'verification') => {
   try {
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-      throw new Error('EMAIL_USER or EMAIL_PASS missing in backend .env');
+      throw new Error('EMAIL_USER or EMAIL_PASS missing in backend environment');
     }
 
     if (!email || !otp) {
@@ -16,6 +16,11 @@ const sendOtpEmail = async (email, otp, purpose = 'verification') => {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
+
+      // ✅ Important: Render pe email hang na ho
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000,
     });
 
     const isSignup = purpose === 'signup';
