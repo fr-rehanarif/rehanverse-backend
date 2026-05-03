@@ -1,3 +1,7 @@
+require('dotenv').config();
+console.log("ENV CHECK:", process.env.SUPABASE_URL ? "Loaded" : "Missing");
+console.log("GEMINI CHECK:", process.env.GEMINI_API_KEY ? "Loaded" : "Missing");
+
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
@@ -6,6 +10,7 @@ const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/paymentRoutes');
 const activityRoutes = require('./routes/activityRoutes');
 const userRoutes = require('./routes/userRoutes');
+const assistantRoutes = require('./routes/assistantRoutes');
 
 const app = express();
 
@@ -18,6 +23,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/activity', activityRoutes);
+app.use('/api/assistant', assistantRoutes);
 
 app.get('/api/test', (req, res) => {
   res.json({ message: 'API working 🚀' });

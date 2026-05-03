@@ -17,6 +17,7 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const liveClassRoutes = require('./routes/liveClassRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const progressRoutes = require('./routes/progressRoutes');
+const assistantRoutes = require('./routes/assistantRoutes');
 
 // ✅ MIDDLEWARE
 app.use(cors());
@@ -45,6 +46,7 @@ app.use('/api/enroll', require('./routes/enrollRoutes'));
 app.use('/api/upload', uploadRoutes);
 app.use('/api/live-classes', liveClassRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/assistant', assistantRoutes);
 app.use('/api/progress', progressRoutes);
 
 // ✅ 🔥 HEALTH CHECK (IMPORTANT FOR RENDER + PING)
