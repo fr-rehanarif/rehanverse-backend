@@ -1,21 +1,22 @@
 const express = require('express');
 const router = express.Router();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 
 const AssistantLog = require('../models/AssistantLog');
 const User = require('../models/User');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
 
-// ✅ Main AI system instruction
 const SYSTEM_PROMPT = `
 You are REHANVERSE Assistant, the official helper inside the REHANVERSE learning app.
 
 Your job:
-- Help users with REHANVERSE app navigation
-- Help with courses, enrollment, payments, payment proof upload, coupons, live classes, protected PDFs
-- Help with study doubts, revision plans, academic explanations, and learning guidance
+- Help users with REHANVERSE app navigation.
+- Help with courses, enrollment, payments, payment proof upload, coupons, live classes, protected PDFs.
+- Help with study doubts, revision plans, academic explanations, and learning guidance.
 
 Important REHANVERSE rules:
 - Paid courses unlock only after admin approves payment proof.
@@ -32,8 +33,9 @@ If the user asks unrelated questions, politely redirect them to REHANVERSE app, 
 `;
 
 // ✅ POST /api/assistant/ask
-// User asks question
 router.post('/ask', protect, async (req, res) => {
+  let cleanQuestion = '';
+
   try {
     const { question } = req.body;
 
@@ -44,20 +46,20 @@ router.post('/ask', protect, async (req, res) => {
       });
     }
 
-    if (!process.env.GEMINI_API_KEY) {
+    if (!process.env.GROQ_API_KEY) {
       return res.status(500).json({
         success: false,
-        message: 'Gemini API key missing in backend .env',
+        message: 'GROQ_API_KEY missing in backend environment variables',
       });
     }
 
-    // ✅ Your auth middleware may store id as req.user.id or req.user.userId
+    cleanQuestion = question.trim();
+
     const userId = req.user.id || req.user.userId || req.user._id;
 
     let userName = req.user.name || 'Unknown User';
     let userEmail = req.user.email || 'unknown@email.com';
 
-    // ✅ If protect middleware only gives id/role, fetch full user
     if ((!req.user.name || !req.user.email) && userId) {
       const fullUser = await User.findById(userId).select('name email');
       if (fullUser) {
@@ -66,27 +68,31 @@ router.post('/ask', protect, async (req, res) => {
       }
     }
 
-    const cleanQuestion = question.trim();
-
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
-    });
-
-    const prompt = `
-${SYSTEM_PROMPT}
-
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.1-8b-instant',
+      temperature: 0.4,
+      max_completion_tokens: 450,
+      messages: [
+        {
+          role: 'system',
+          content: SYSTEM_PROMPT,
+        },
+        {
+          role: 'user',
+          content: `
 User details:
 Name: ${userName}
 Email: ${userEmail}
 
 User question:
 ${cleanQuestion}
-`;
+`,
+        },
+      ],
+    });
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
     const answer =
-      response.text() ||
+      completion?.choices?.[0]?.message?.content?.trim() ||
       'Sorry, I could not generate a proper response. Please try again.';
 
     const ipAddress =
@@ -116,14 +122,13 @@ ${cleanQuestion}
     console.error('Assistant ask error:', error);
 
     try {
-      const question = req.body?.question || 'Unknown question';
       const userId = req.user?.id || req.user?.userId || req.user?._id || null;
 
       await AssistantLog.create({
         user: userId,
         userName: req.user?.name || 'Unknown User',
         userEmail: req.user?.email || 'unknown@email.com',
-        question,
+        question: cleanQuestion || req.body?.question || 'Unknown question',
         answer: 'Assistant failed to respond.',
         ipAddress:
           req.headers['x-forwarded-for']?.split(',')[0] ||
@@ -138,13 +143,12 @@ ${cleanQuestion}
 
     res.status(500).json({
       success: false,
-      message: 'Assistant failed to respond',
+      message: error.message || 'Assistant failed to respond',
     });
   }
 });
 
 // ✅ GET /api/assistant/logs
-// Admin can see all assistant logs
 router.get('/logs', protect, adminOnly, async (req, res) => {
   try {
     const logs = await AssistantLog.find()
@@ -159,6 +163,7 @@ router.get('/logs', protect, adminOnly, async (req, res) => {
     });
   } catch (error) {
     console.error('Assistant logs error:', error);
+
     res.status(500).json({
       success: false,
       message: 'Failed to fetch assistant logs',
@@ -167,7 +172,6 @@ router.get('/logs', protect, adminOnly, async (req, res) => {
 });
 
 // ✅ DELETE /api/assistant/logs/:id
-// Admin can delete one log if needed
 router.delete('/logs/:id', protect, adminOnly, async (req, res) => {
   try {
     const log = await AssistantLog.findById(req.params.id);
@@ -187,6 +191,7 @@ router.delete('/logs/:id', protect, adminOnly, async (req, res) => {
     });
   } catch (error) {
     console.error('Assistant log delete error:', error);
+
     res.status(500).json({
       success: false,
       message: 'Failed to delete assistant log',
