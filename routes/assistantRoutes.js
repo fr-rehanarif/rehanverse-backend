@@ -69,7 +69,7 @@ router.post('/ask', protect, async (req, res) => {
     const cleanQuestion = question.trim();
 
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.0-flash',
     });
 
     const prompt = `
