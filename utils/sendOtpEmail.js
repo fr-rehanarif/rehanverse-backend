@@ -1,5 +1,8 @@
 const axios = require('axios');
 
+const VERIFIED_SENDER_EMAIL = 'rehanverse.app@gmail.com';
+const VERIFIED_SENDER_NAME = 'REHANVERSE';
+
 const sendOtpEmail = async (email, otp, purpose = 'verification') => {
   try {
     if (!process.env.BREVO_API_KEY) {
@@ -24,20 +27,30 @@ const sendOtpEmail = async (email, otp, purpose = 'verification') => {
       ? 'Use this OTP to verify your email and create your REHANVERSE account.'
       : 'Use this OTP to complete your REHANVERSE login.';
 
+    console.log('📩 Sending OTP using sender:', VERIFIED_SENDER_EMAIL);
+
     const response = await axios.post(
       'https://api.brevo.com/v3/smtp/email',
       {
         sender: {
-          name: 'REHANVERSE',
-          email: process.env.EMAIL_USER || 'rehanverse.app@gmail.com',
+          name: VERIFIED_SENDER_NAME,
+          email: VERIFIED_SENDER_EMAIL,
         },
+
         to: [
           {
             email,
             name: 'REHANVERSE User',
           },
         ],
+
+        replyTo: {
+          email: VERIFIED_SENDER_EMAIL,
+          name: VERIFIED_SENDER_NAME,
+        },
+
         subject,
+
         htmlContent: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background:#f8fafc; padding: 24px;">
             <div style="background: linear-gradient(135deg, #4f46e5, #7c3aed); padding: 30px; border-radius: 18px 18px 0 0; text-align: center;">
@@ -92,12 +105,14 @@ const sendOtpEmail = async (email, otp, purpose = 'verification') => {
         headers: {
           'api-key': process.env.BREVO_API_KEY,
           'Content-Type': 'application/json',
+          Accept: 'application/json',
         },
         timeout: 20000,
       }
     );
 
     console.log('✅ OTP email sent via Brevo:', {
+      sender: VERIFIED_SENDER_EMAIL,
       to: email,
       messageId: response.data?.messageId,
     });
