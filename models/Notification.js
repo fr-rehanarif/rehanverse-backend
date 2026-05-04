@@ -54,11 +54,11 @@ const notificationSchema = new mongoose.Schema(
     ],
 
     clearedBy: [
-  {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-  },
-],
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
 
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

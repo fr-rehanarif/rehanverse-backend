@@ -5,17 +5,32 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 
+// ✅ Helper: current user's enrolled courses
+const getUserEnrolledCourseIds = async (userId) => {
+  const user = await User.findById(userId).select('enrolledCourses');
+  return user?.enrolledCourses || [];
+};
+
+// ✅ Helper: visible notification query for current user
+const getVisibleNotificationQuery = async (userId) => {
+  const enrolledCourseIds = await getUserEnrolledCourseIds(userId);
+
+  return {
+    // ✅ Jis user ne notification clear kar di, usko dobara mat bhejo
+    clearedBy: { $nin: [userId] },
+
+    $or: [
+      { targetType: 'all' },
+      { targetType: 'user', userId: userId },
+      { targetType: 'course', courseId: { $in: enrolledCourseIds } },
+    ],
+  };
+};
+
 // ✅ ADMIN: CREATE NOTIFICATION
 router.post('/create', protect, adminOnly, async (req, res) => {
   try {
-    const {
-      title,
-      message,
-      type,
-      targetType,
-      courseId,
-      userId,
-    } = req.body;
+    const { title, message, type, targetType, courseId, userId } = req.body;
 
     if (!title || !message) {
       return res.status(400).json({
@@ -50,17 +65,9 @@ router.get('/my', protect, async (req, res) => {
   try {
     const userId = req.user._id;
 
-    const user = await User.findById(userId).select('enrolledCourses');
+    const query = await getVisibleNotificationQuery(userId);
 
-    const enrolledCourseIds = user.enrolledCourses || [];
-
-    const notifications = await Notification.find({
-      $or: [
-        { targetType: 'all' },
-        { targetType: 'user', userId: userId },
-        { targetType: 'course', courseId: { $in: enrolledCourseIds } },
-      ],
-    })
+    const notifications = await Notification.find(query)
       .sort({ createdAt: -1 })
       .limit(50);
 
@@ -73,9 +80,10 @@ router.get('/my', protect, async (req, res) => {
       courseId: n.courseId,
       userId: n.userId,
       createdAt: n.createdAt,
-      isRead: n.readBy.some(
-        (readUserId) => readUserId.toString() === userId.toString()
-      ),
+      isRead:
+        n.readBy?.some(
+          (readUserId) => readUserId.toString() === userId.toString()
+        ) || false,
     }));
 
     res.json(formattedNotifications);
@@ -90,6 +98,8 @@ router.get('/my', protect, async (req, res) => {
 // ✅ USER: MARK SINGLE NOTIFICATION AS READ
 router.put('/read/:id', protect, async (req, res) => {
   try {
+    const userId = req.user._id;
+
     const notification = await Notification.findById(req.params.id);
 
     if (!notification) {
@@ -98,12 +108,12 @@ router.put('/read/:id', protect, async (req, res) => {
       });
     }
 
-    const alreadyRead = notification.readBy.some(
-      (readUserId) => readUserId.toString() === req.user._id.toString()
+    const alreadyRead = notification.readBy?.some(
+      (readUserId) => readUserId.toString() === userId.toString()
     );
 
     if (!alreadyRead) {
-      notification.readBy.push(req.user._id);
+      notification.readBy.push(userId);
       await notification.save();
     }
 
@@ -119,30 +129,23 @@ router.put('/read/:id', protect, async (req, res) => {
   }
 });
 
-// ✅ USER: MARK ALL MY NOTIFICATIONS AS READ
+// ✅ USER: MARK ALL MY VISIBLE NOTIFICATIONS AS READ
 router.put('/read-all', protect, async (req, res) => {
   try {
     const userId = req.user._id;
 
-    const user = await User.findById(userId).select('enrolledCourses');
-    const enrolledCourseIds = user.enrolledCourses || [];
+    const query = await getVisibleNotificationQuery(userId);
 
-    await Notification.updateMany(
-      {
-        $or: [
-          { targetType: 'all' },
-          { targetType: 'user', userId: userId },
-          { targetType: 'course', courseId: { $in: enrolledCourseIds } },
-        ],
-        readBy: { $ne: userId },
-      },
+    const result = await Notification.updateMany(
+      query,
       {
         $addToSet: { readBy: userId },
       }
     );
 
     res.json({
-      message: 'All notifications marked as read',
+      message: 'All visible notifications marked as read',
+      markedCount: result.modifiedCount || 0,
     });
   } catch (err) {
     console.log('Mark all notifications read error:', err);
@@ -152,28 +155,67 @@ router.put('/read-all', protect, async (req, res) => {
   }
 });
 
-// ✅ USER: HIDE/CLEAR MY READ NOTIFICATIONS
+// ✅ USER: CLEAR/HIDE ALL MY VISIBLE NOTIFICATIONS
+// NOTE: Frontend button ka naam "Clear read" ho sakta hai,
+// but backend ab visible saari notifications current user ke liye hide karega.
 router.put('/clear-read', protect, async (req, res) => {
   try {
     const userId = req.user._id;
 
-    await Notification.updateMany(
+    const query = await getVisibleNotificationQuery(userId);
+
+    const result = await Notification.updateMany(
+      query,
       {
-        readBy: userId,
-        clearedBy: { $ne: userId },
-      },
-      {
-        $addToSet: { clearedBy: userId },
+        $addToSet: {
+          clearedBy: userId,
+          readBy: userId,
+        },
       }
     );
 
+    console.log(
+      `✅ Notifications cleared for user=${userId}, count=${result.modifiedCount || 0}`
+    );
+
     res.json({
-      message: 'Read notifications cleared successfully',
+      message: 'Notifications cleared successfully',
+      clearedCount: result.modifiedCount || 0,
     });
   } catch (err) {
-    console.log('Clear read notifications error:', err);
+    console.log('Clear notifications error:', err);
     res.status(500).json({
-      message: 'Server error while clearing read notifications',
+      message: 'Server error while clearing notifications',
+    });
+  }
+});
+
+// ✅ USER: CLEAR ALL VISIBLE NOTIFICATIONS
+router.put('/clear-all', protect, async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const query = await getVisibleNotificationQuery(userId);
+
+    const result = await Notification.updateMany(query, {
+      $addToSet: {
+        clearedBy: userId,
+        readBy: userId,
+      },
+    });
+
+    console.log(
+      `✅ Clear all notifications: user=${userId}, cleared=${result.modifiedCount || 0}`
+    );
+
+    res.json({
+      message: 'All notifications cleared successfully',
+      clearedCount: result.modifiedCount || 0,
+    });
+  } catch (err) {
+    console.log('Clear all notifications error:', err);
+    res.status(500).json({
+      message: 'Server error while clearing all notifications',
     });
   }
 });
