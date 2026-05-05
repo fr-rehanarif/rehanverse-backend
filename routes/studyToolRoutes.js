@@ -28,21 +28,68 @@ async function extractTextFromPdfUrl(pdfUrl) {
     throw new Error('PDF URL missing');
   }
 
-  const response = await axios.get(pdfUrl, {
-    responseType: 'arraybuffer',
-    timeout: 60000,
-  });
+  try {
+    console.log('🔗 PDF URL:', pdfUrl);
 
-  const buffer = Buffer.from(response.data);
-  const parsed = await pdfParse(buffer);
+    const response = await axios.get(pdfUrl, {
+      responseType: 'arraybuffer',
+      timeout: 60000,
+      headers: {
+        Accept: 'application/pdf,*/*',
+        'User-Agent': 'Mozilla/5.0 REHANVERSE-AI-PDF-Extractor',
+      },
+      // ✅ Isse axios non-200 response pe direct throw nahi karega,
+      // hum khud status/content-type log karke clean error denge.
+      validateStatus: () => true,
+    });
 
-  const text = parsed.text?.trim();
+    console.log('📥 PDF download status:', response.status);
+    console.log('📥 PDF content-type:', response.headers['content-type']);
+    console.log(
+      '📥 PDF content-length:',
+      response.data?.byteLength || response.data?.length
+    );
 
-  if (!text || text.length < 80) {
-    throw new Error('PDF text extract nahi ho paya. PDF scanned/image based ho sakta hai.');
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(
+        `PDF download failed. Status: ${response.status}. Supabase URL public/access issue ho sakta hai.`
+      );
+    }
+
+    const contentType = response.headers['content-type'] || '';
+
+    if (
+      !contentType.includes('pdf') &&
+      !contentType.includes('octet-stream') &&
+      !contentType.includes('application/octet-stream')
+    ) {
+      throw new Error(
+        `PDF URL actual PDF return nahi kar raha. Content-Type: ${contentType}`
+      );
+    }
+
+    const buffer = Buffer.from(response.data);
+
+    if (!buffer || buffer.length < 1000) {
+      throw new Error('Downloaded PDF file empty ya invalid lag rahi hai.');
+    }
+
+    const parsed = await pdfParse(buffer);
+    const text = parsed.text?.trim();
+
+    console.log('📝 Extracted text length:', text?.length || 0);
+
+    if (!text || text.length < 80) {
+      throw new Error(
+        'PDF download ho gayi, but text extract nahi hua. PDF protected/scanned/encoded ho sakti hai.'
+      );
+    }
+
+    return text;
+  } catch (error) {
+    console.log('❌ extractTextFromPdfUrl error:', error.message);
+    throw error;
   }
-
-  return text;
 }
 
 // ✅ Helper: Generate important questions using Groq
