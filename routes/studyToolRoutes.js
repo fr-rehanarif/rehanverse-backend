@@ -1,7 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const pdfParse = require('pdf-parse');
+
+// ✅ pdf-parse import fix
+// Different pdf-parse versions export differently, so this handles all cases.
+const pdfParseModule = require('pdf-parse');
+const pdfParse =
+  typeof pdfParseModule === 'function'
+    ? pdfParseModule
+    : pdfParseModule.default || pdfParseModule.pdfParse || pdfParseModule.parse;
 
 const StudyTool = require('../models/StudyTool');
 const Course = require('../models/Course');
