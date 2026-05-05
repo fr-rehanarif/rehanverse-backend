@@ -324,8 +324,8 @@ Rules:
     } catch (err) {
       // ✅ If Groq TPM hits, wait and retry once
       if (err.code === 'rate_limit_exceeded' || err.type === 'tokens') {
-        console.log(`⏳ Groq rate limit on chunk ${i + 1}. Waiting 65s then retrying...`);
-        await sleep(65000);
+        console.log(`⏳ Groq rate limit on chunk ${i + 1}. Waiting 20s then retrying...`);
+        await sleep(20000);
         const retryResult = await callGroqJson(prompt, 650);
         generatedParts.push(retryResult);
       } else {
