@@ -26,6 +26,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const progressRoutes = require('./routes/progressRoutes');
 const assistantRoutes = require('./routes/assistantRoutes');
 const authRoutes = require('./routes/authRoutes');
+const studyToolRoutes = require('./routes/studyToolRoutes');
 
 // ✅ MIDDLEWARE
 app.use(
@@ -70,6 +71,7 @@ app.use('/api/live-classes', liveClassRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/assistant', assistantRoutes);
 app.use('/api/progress', progressRoutes);
+app.use('/api/study-tools', studyToolRoutes);
 
 // ✅ TEST ROUTE
 app.get('/api/test', (req, res) => {
