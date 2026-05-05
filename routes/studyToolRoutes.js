@@ -135,27 +135,148 @@ async function extractTextFromPdfUrl(pdfUrl) {
   }
 }
 
-// ✅ Helper: Generate important questions using Groq
+// ✅ Helper: wait/sleep for Groq free-tier TPM limit
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// ✅ Helper: split long PDF text into balanced chunks
+function createBalancedChunks(text, chunkSize = 2800, maxChunks = 5) {
+  const cleanText = String(text || '')
+    .replace(/\s+/g, ' ')
+    .replace(/={3,}/g, '\n')
+    .trim();
+
+  if (!cleanText) return [];
+
+  const chunks = [];
+
+  for (let i = 0; i < cleanText.length; i += chunkSize) {
+    const chunk = cleanText.slice(i, i + chunkSize).trim();
+    if (chunk.length > 250) chunks.push(chunk);
+  }
+
+  if (chunks.length <= maxChunks) return chunks;
+
+  // ✅ Pick chunks from start/middle/end instead of only first pages
+  const selected = [];
+  const lastIndex = chunks.length - 1;
+
+  for (let i = 0; i < maxChunks; i++) {
+    const index = Math.round((i * lastIndex) / (maxChunks - 1));
+    selected.push(chunks[index]);
+  }
+
+  return selected;
+}
+
+// ✅ Helper: safe array
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+// ✅ Helper: merge + dedupe generated questions
+function mergeGeneratedQuestionSets(items) {
+  const seen = new Set();
+
+  const uniqueByQuestion = (arr) => {
+    const output = [];
+
+    for (const item of safeArray(arr)) {
+      const question = String(item?.question || '').trim();
+      const key = question.toLowerCase();
+
+      if (!question || seen.has(key)) continue;
+
+      seen.add(key);
+      output.push(item);
+    }
+
+    return output;
+  };
+
+  return {
+    shortQuestions: uniqueByQuestion(items.flatMap((x) => safeArray(x.shortQuestions))).slice(0, 10),
+    longQuestions: uniqueByQuestion(items.flatMap((x) => safeArray(x.longQuestions))).slice(0, 10),
+    mcqs: uniqueByQuestion(items.flatMap((x) => safeArray(x.mcqs))).slice(0, 15),
+    mostExpectedQuestions: uniqueByQuestion(items.flatMap((x) => safeArray(x.mostExpectedQuestions))).slice(0, 5),
+  };
+}
+
+// ✅ Helper: Call Groq and return parsed JSON
+async function callGroqJson(prompt, maxTokens = 650) {
+  const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.1-8b-instant',
+      messages: [
+        {
+          role: 'system',
+          content: 'You generate clean JSON only. Never add markdown, explanation, or extra text.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      temperature: 0.25,
+      max_tokens: maxTokens,
+    }),
+  });
+
+  const groqData = await groqResponse.json();
+
+  if (!groqResponse.ok) {
+    console.error('Groq Error:', groqData);
+    const msg = groqData?.error?.message || 'AI generation failed';
+    const err = new Error(msg);
+    err.code = groqData?.error?.code;
+    err.type = groqData?.error?.type;
+    throw err;
+  }
+
+  const aiText = groqData?.choices?.[0]?.message?.content;
+
+  if (!aiText) {
+    throw new Error('No AI response received');
+  }
+
+  return extractJson(aiText);
+}
+
+// ✅ Helper: Generate important questions using Groq with chunking + merge
 async function generateImportantQuestionsWithAI({ courseTitle, sourceText }) {
   if (!GROQ_API_KEY) {
     throw new Error('GROQ_API_KEY missing in environment variables');
   }
 
-  // Groq context limit safe rakhne ke liye. Baad mein chunking add kar sakte hain.
-  const safeText = sourceText.slice(0, 24000);
+  const chunks = createBalancedChunks(sourceText, 2800, 5);
 
-  const prompt = `
+  if (chunks.length === 0) {
+    throw new Error('AI generation ke liye readable PDF text nahi mila.');
+  }
+
+  console.log(`🧠 AI chunking started. Total chunks used: ${chunks.length}`);
+
+  const generatedParts = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+
+    const prompt = `
 You are an expert Indian university exam assistant.
 
-Generate important exam questions from the following course material.
+Generate important exam questions from this PDF chunk.
 
 Course Title: ${courseTitle}
+Chunk: ${i + 1} of ${chunks.length}
 
 Material:
-${safeText}
+${chunk}
 
 Return ONLY valid JSON in this exact format:
-
 {
   "shortQuestions": [
     {
@@ -186,52 +307,48 @@ Return ONLY valid JSON in this exact format:
 }
 
 Rules:
-- Generate 10 short questions.
-- Generate 10 long questions.
-- Generate 15 MCQs.
-- Generate 5 most expected questions.
+- Generate 1 short question.
+- Generate 1 long question.
+- Generate 2 MCQs.
+- Generate 1 most expected question.
 - Keep language simple and exam-focused.
+- Avoid duplicate questions.
 - Do not add markdown.
 - Do not add text outside JSON.
 `;
 
-  const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
-      messages: [
-        {
-          role: 'system',
-          content: 'You generate clean JSON only. Never add markdown, explanation, or extra text.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      temperature: 0.3,
-      max_tokens: 3500,
-    }),
+    try {
+      console.log(`🤖 Groq generating chunk ${i + 1}/${chunks.length}...`);
+      const result = await callGroqJson(prompt, 650);
+      generatedParts.push(result);
+    } catch (err) {
+      // ✅ If Groq TPM hits, wait and retry once
+      if (err.code === 'rate_limit_exceeded' || err.type === 'tokens') {
+        console.log(`⏳ Groq rate limit on chunk ${i + 1}. Waiting 65s then retrying...`);
+        await sleep(65000);
+        const retryResult = await callGroqJson(prompt, 650);
+        generatedParts.push(retryResult);
+      } else {
+        throw err;
+      }
+    }
+
+    // ✅ Free-tier friendly throttling
+    if (i < chunks.length - 1) {
+      await sleep(65000);
+    }
+  }
+
+  const merged = mergeGeneratedQuestionSets(generatedParts);
+
+  console.log('✅ AI chunking finished:', {
+    short: merged.shortQuestions.length,
+    long: merged.longQuestions.length,
+    mcqs: merged.mcqs.length,
+    expected: merged.mostExpectedQuestions.length,
   });
 
-  const groqData = await groqResponse.json();
-
-  if (!groqResponse.ok) {
-    console.error('Groq Error:', groqData);
-    throw new Error(groqData?.error?.message || 'AI generation failed');
-  }
-
-  const aiText = groqData?.choices?.[0]?.message?.content;
-
-  if (!aiText) {
-    throw new Error('No AI response received');
-  }
-
-  return extractJson(aiText);
+  return merged;
 }
 
 // ✅ ADMIN: Generate Important Questions from pasted text
