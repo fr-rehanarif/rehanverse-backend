@@ -81,8 +81,6 @@ async function extractTextFromPdfUrl(pdfUrl) {
         Accept: 'application/pdf,*/*',
         'User-Agent': 'Mozilla/5.0 REHANVERSE-AI-PDF-Extractor',
       },
-      // ✅ Isse axios non-200 response pe direct throw nahi karega,
-      // hum khud status/content-type log karke clean error denge.
       validateStatus: () => true,
     });
 
@@ -198,6 +196,39 @@ function mergeGeneratedQuestionSets(items) {
     longQuestions: uniqueByQuestion(items.flatMap((x) => safeArray(x.longQuestions))).slice(0, 10),
     mcqs: uniqueByQuestion(items.flatMap((x) => safeArray(x.mcqs))).slice(0, 15),
     mostExpectedQuestions: uniqueByQuestion(items.flatMap((x) => safeArray(x.mostExpectedQuestions))).slice(0, 5),
+  };
+}
+
+// ✅ Helper: merge + dedupe generated quiz questions
+function mergeGeneratedQuizSets(items) {
+  const seen = new Set();
+  const output = [];
+
+  for (const set of safeArray(items)) {
+    const questions = safeArray(set.quizQuestions || set.questions || set.mcqs);
+
+    for (const item of questions) {
+      const question = String(item?.question || '').trim();
+      const key = question.toLowerCase();
+
+      if (!question || seen.has(key)) continue;
+
+      const options = safeArray(item.options).slice(0, 4);
+
+      if (options.length < 4) continue;
+
+      seen.add(key);
+      output.push({
+        question,
+        options,
+        correctAnswer: String(item.correctAnswer || item.answer || '').trim(),
+        explanation: String(item.explanation || item.answerHint || '').trim(),
+      });
+    }
+  }
+
+  return {
+    quizQuestions: output.slice(0, 20),
   };
 }
 
@@ -346,6 +377,88 @@ Rules:
     long: merged.longQuestions.length,
     mcqs: merged.mcqs.length,
     expected: merged.mostExpectedQuestions.length,
+  });
+
+  return merged;
+}
+
+// ✅ Helper: Generate quiz questions using Groq with chunking + merge
+async function generateQuizWithAI({ courseTitle, sourceText }) {
+  if (!GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY missing in environment variables');
+  }
+
+  const chunks = createBalancedChunks(sourceText, 2600, 5);
+
+  if (chunks.length === 0) {
+    throw new Error('Quiz generation ke liye readable PDF text nahi mila.');
+  }
+
+  console.log(`🧠 AI quiz chunking started. Total chunks used: ${chunks.length}`);
+
+  const generatedParts = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+
+    const prompt = `
+You are an expert Indian university exam quiz creator.
+
+Generate exam-focused quiz questions from this PDF chunk.
+
+Course Title: ${courseTitle}
+Chunk: ${i + 1} of ${chunks.length}
+
+Material:
+${chunk}
+
+Return ONLY valid JSON in this exact format:
+{
+  "quizQuestions": [
+    {
+      "question": "string",
+      "options": ["A", "B", "C", "D"],
+      "correctAnswer": "string",
+      "explanation": "string"
+    }
+  ]
+}
+
+Rules:
+- Generate 3 quiz questions from this chunk.
+- Options must be clear and exam-focused.
+- correctAnswer must exactly match one option text, not just A/B/C/D.
+- explanation should be short and useful.
+- Avoid duplicate questions.
+- Keep language simple.
+- Do not add markdown.
+- Do not add text outside JSON.
+`;
+
+    try {
+      console.log(`🧠 Groq generating quiz chunk ${i + 1}/${chunks.length}...`);
+      const result = await callGroqJson(prompt, 750);
+      generatedParts.push(result);
+    } catch (err) {
+      if (err.code === 'rate_limit_exceeded' || err.type === 'tokens') {
+        console.log(`⏳ Groq quiz rate limit on chunk ${i + 1}. Waiting 20s then retrying...`);
+        await sleep(20000);
+        const retryResult = await callGroqJson(prompt, 750);
+        generatedParts.push(retryResult);
+      } else {
+        throw err;
+      }
+    }
+
+    if (i < chunks.length - 1) {
+      await sleep(65000);
+    }
+  }
+
+  const merged = mergeGeneratedQuizSets(generatedParts);
+
+  console.log('✅ AI quiz chunking finished:', {
+    quizQuestions: merged.quizQuestions.length,
   });
 
   return merged;
@@ -521,6 +634,178 @@ router.post('/generate-important-questions-from-pdf', protect, adminOnly, async 
     console.error('Generate Important Questions From PDF Error:', error);
     res.status(500).json({
       message: error.message || 'Server error while generating important questions from PDF',
+    });
+  }
+});
+
+// ✅ ADMIN: Generate Quiz from pasted text
+router.post('/generate-quiz', protect, adminOnly, async (req, res) => {
+  try {
+    const { courseId, sourceText, sourcePdf } = req.body;
+
+    if (!courseId) {
+      return res.status(400).json({ message: 'courseId is required' });
+    }
+
+    if (!sourceText || sourceText.trim().length < 50) {
+      return res.status(400).json({
+        message: 'sourceText is required and should be at least 50 characters',
+      });
+    }
+
+    const course = await Course.findById(courseId);
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    const parsedContent = await generateQuizWithAI({
+      courseTitle: course.title,
+      sourceText: sourceText.trim(),
+    });
+
+    const studyTool = await StudyTool.create({
+      course: courseId,
+      type: 'quiz',
+      title: `Quiz Practice - ${course.title}`,
+      content: parsedContent,
+      sourcePdf: sourcePdf || {},
+      status: 'draft',
+      generatedBy: req.user?._id,
+    });
+
+    res.status(201).json({
+      message: 'Quiz generated successfully',
+      studyTool,
+    });
+  } catch (error) {
+    console.error('Generate Quiz Error:', error);
+    res.status(500).json({
+      message: 'Server error while generating quiz',
+      error: error.message,
+    });
+  }
+});
+
+// ✅ ADMIN: Generate Quiz directly from selected/all course PDFs
+router.post('/generate-quiz-from-pdf', protect, adminOnly, async (req, res) => {
+  try {
+    const { courseId, pdfIndex = 0, pdfIndexes, allPdfs = false } = req.body;
+
+    if (!courseId) {
+      return res.status(400).json({ message: 'courseId is required' });
+    }
+
+    const course = await Course.findById(courseId);
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    if (!course.pdfs || course.pdfs.length === 0) {
+      return res.status(400).json({
+        message: 'Is course mein koi PDF uploaded nahi hai',
+      });
+    }
+
+    let pdfsToUse = [];
+
+    if (Array.isArray(pdfIndexes) && pdfIndexes.length > 0) {
+      pdfsToUse = pdfIndexes
+        .map((index) => course.pdfs[Number(index)])
+        .filter((pdf) => pdf?.url);
+    } else if (allPdfs) {
+      pdfsToUse = course.pdfs.filter((pdf) => pdf?.url);
+    } else {
+      pdfsToUse = [course.pdfs[Number(pdfIndex)] || course.pdfs[0]].filter((pdf) => pdf?.url);
+    }
+
+    if (pdfsToUse.length === 0) {
+      return res.status(400).json({
+        message: 'Selected PDF URLs missing hain',
+      });
+    }
+
+    let combinedText = '';
+    const usedPdfs = [];
+    const failedPdfs = [];
+
+    for (const pdf of pdfsToUse) {
+      try {
+        console.log('📄 Extracting text from PDF for quiz:', pdf.title || pdf.url);
+
+        const pdfText = await extractTextFromPdfUrl(pdf.url);
+
+        combinedText += `\n\n===== PDF: ${pdf.title || pdf.filename || 'Untitled PDF'} =====\n\n`;
+        combinedText += pdfText;
+
+        usedPdfs.push({
+          title: pdf.title || '',
+          url: pdf.url || '',
+          filename: pdf.filename || '',
+          extractedCharacters: pdfText.length,
+        });
+
+        console.log('✅ PDF text extracted for quiz:', pdf.title || pdf.filename, pdfText.length);
+      } catch (pdfErr) {
+        console.log('❌ Quiz PDF extract failed:', pdf.title || pdf.filename, pdfErr.message);
+
+        failedPdfs.push({
+          title: pdf.title || '',
+          filename: pdf.filename || '',
+          error: pdfErr.message,
+        });
+      }
+    }
+
+    if (!combinedText.trim() || combinedText.trim().length < 80) {
+      return res.status(400).json({
+        message:
+          'Selected PDFs se quiz ke liye text extract nahi ho paya. PDFs scanned/image based ho sakti hain ya URL accessible nahi hai.',
+        failedPdfs,
+      });
+    }
+
+    const parsedContent = await generateQuizWithAI({
+      courseTitle: course.title,
+      sourceText: combinedText,
+    });
+
+    const studyTool = await StudyTool.create({
+      course: courseId,
+      type: 'quiz',
+      title: `Quiz Practice - ${course.title}`,
+      content: parsedContent,
+      sourcePdf: {
+        title:
+          usedPdfs.length > 1
+            ? `${usedPdfs.length} PDFs combined`
+            : usedPdfs[0]?.title || '',
+        url: usedPdfs[0]?.url || '',
+        filename:
+          usedPdfs.length > 1
+            ? usedPdfs.map((p) => p.filename || p.title).filter(Boolean).join(', ')
+            : usedPdfs[0]?.filename || '',
+      },
+      status: 'draft',
+      generatedBy: req.user?._id,
+    });
+
+    res.status(201).json({
+      message:
+        usedPdfs.length > 1
+          ? 'Quiz generated from selected PDFs successfully'
+          : 'Quiz generated from selected PDF successfully',
+      studyTool,
+      extractedCharacters: combinedText.length,
+      usedPdfCount: usedPdfs.length,
+      usedPdfs,
+      failedPdfs,
+    });
+  } catch (error) {
+    console.error('Generate Quiz From PDF Error:', error);
+    res.status(500).json({
+      message: error.message || 'Server error while generating quiz from PDF',
     });
   }
 });
