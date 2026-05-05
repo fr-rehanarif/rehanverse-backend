@@ -3,12 +3,48 @@ const router = express.Router();
 const axios = require('axios');
 
 // ✅ pdf-parse import fix
-// Different pdf-parse versions export differently, so this handles all cases.
+// pdf-parse v1 exports a direct function, v2 exports PDFParse class.
 const pdfParseModule = require('pdf-parse');
-const pdfParse =
-  typeof pdfParseModule === 'function'
-    ? pdfParseModule
-    : pdfParseModule.default || pdfParseModule.pdfParse || pdfParseModule.parse;
+
+async function parsePdfBuffer(buffer) {
+  // ✅ Old pdf-parse versions
+  if (typeof pdfParseModule === 'function') {
+    return pdfParseModule(buffer);
+  }
+
+  if (typeof pdfParseModule.default === 'function') {
+    return pdfParseModule.default(buffer);
+  }
+
+  if (typeof pdfParseModule.pdfParse === 'function') {
+    return pdfParseModule.pdfParse(buffer);
+  }
+
+  if (typeof pdfParseModule.parse === 'function') {
+    return pdfParseModule.parse(buffer);
+  }
+
+  // ✅ New pdf-parse versions
+  if (typeof pdfParseModule.PDFParse === 'function') {
+    const parser = new pdfParseModule.PDFParse({ data: buffer });
+
+    try {
+      const result = await parser.getText();
+      return {
+        text: result?.text || '',
+        numpages: result?.total || result?.pages?.length || 0,
+        info: result?.info || {},
+      };
+    } finally {
+      if (typeof parser.destroy === 'function') {
+        await parser.destroy();
+      }
+    }
+  }
+
+  console.log('❌ pdf-parse module keys:', Object.keys(pdfParseModule || {}));
+  throw new Error('pdf-parse package ka supported parser function/class nahi mila.');
+}
 
 const StudyTool = require('../models/StudyTool');
 const Course = require('../models/Course');
@@ -81,7 +117,7 @@ async function extractTextFromPdfUrl(pdfUrl) {
       throw new Error('Downloaded PDF file empty ya invalid lag rahi hai.');
     }
 
-    const parsed = await pdfParse(buffer);
+    const parsed = await parsePdfBuffer(buffer);
     const text = parsed.text?.trim();
 
     console.log('📝 Extracted text length:', text?.length || 0);
