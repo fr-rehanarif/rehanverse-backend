@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
+const pdfParse = require('pdf-parse');
 
 const StudyTool = require('../models/StudyTool');
 const Course = require('../models/Course');
@@ -20,40 +22,47 @@ function extractJson(text) {
   }
 }
 
-// ✅ ADMIN: Generate Important Questions using AI
-router.post('/generate-important-questions', protect, adminOnly, async (req, res) => {
-  try {
-    const { courseId, sourceText, sourcePdf } = req.body;
+// ✅ Helper: Extract text from PDF URL
+async function extractTextFromPdfUrl(pdfUrl) {
+  if (!pdfUrl) {
+    throw new Error('PDF URL missing');
+  }
 
-    if (!courseId) {
-      return res.status(400).json({ message: 'courseId is required' });
-    }
+  const response = await axios.get(pdfUrl, {
+    responseType: 'arraybuffer',
+    timeout: 60000,
+  });
 
-    if (!sourceText || sourceText.trim().length < 50) {
-      return res.status(400).json({
-        message: 'sourceText is required and should be at least 50 characters',
-      });
-    }
+  const buffer = Buffer.from(response.data);
+  const parsed = await pdfParse(buffer);
 
-    if (!GROQ_API_KEY) {
-      return res.status(500).json({ message: 'GROQ_API_KEY missing in environment variables' });
-    }
+  const text = parsed.text?.trim();
 
-    const course = await Course.findById(courseId);
+  if (!text || text.length < 80) {
+    throw new Error('PDF text extract nahi ho paya. PDF scanned/image based ho sakta hai.');
+  }
 
-    if (!course) {
-      return res.status(404).json({ message: 'Course not found' });
-    }
+  return text;
+}
 
-    const prompt = `
+// ✅ Helper: Generate important questions using Groq
+async function generateImportantQuestionsWithAI({ courseTitle, sourceText }) {
+  if (!GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY missing in environment variables');
+  }
+
+  // Groq context limit safe rakhne ke liye. Baad mein chunking add kar sakte hain.
+  const safeText = sourceText.slice(0, 24000);
+
+  const prompt = `
 You are an expert Indian university exam assistant.
 
 Generate important exam questions from the following course material.
 
-Course Title: ${course.title}
+Course Title: ${courseTitle}
 
 Material:
-${sourceText}
+${safeText}
 
 Return ONLY valid JSON in this exact format:
 
@@ -96,47 +105,70 @@ Rules:
 - Do not add text outside JSON.
 `;
 
-    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You generate clean JSON only. Never add markdown, explanation, or extra text.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.3,
-        max_tokens: 3500,
-      }),
-    });
+  const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.1-8b-instant',
+      messages: [
+        {
+          role: 'system',
+          content: 'You generate clean JSON only. Never add markdown, explanation, or extra text.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      temperature: 0.3,
+      max_tokens: 3500,
+    }),
+  });
 
-    const groqData = await groqResponse.json();
+  const groqData = await groqResponse.json();
 
-    if (!groqResponse.ok) {
-      console.error('Groq Error:', groqData);
-      return res.status(500).json({
-        message: 'AI generation failed',
-        error: groqData?.error?.message || 'Unknown Groq error',
+  if (!groqResponse.ok) {
+    console.error('Groq Error:', groqData);
+    throw new Error(groqData?.error?.message || 'AI generation failed');
+  }
+
+  const aiText = groqData?.choices?.[0]?.message?.content;
+
+  if (!aiText) {
+    throw new Error('No AI response received');
+  }
+
+  return extractJson(aiText);
+}
+
+// ✅ ADMIN: Generate Important Questions from pasted text
+router.post('/generate-important-questions', protect, adminOnly, async (req, res) => {
+  try {
+    const { courseId, sourceText, sourcePdf } = req.body;
+
+    if (!courseId) {
+      return res.status(400).json({ message: 'courseId is required' });
+    }
+
+    if (!sourceText || sourceText.trim().length < 50) {
+      return res.status(400).json({
+        message: 'sourceText is required and should be at least 50 characters',
       });
     }
 
-    const aiText = groqData?.choices?.[0]?.message?.content;
+    const course = await Course.findById(courseId);
 
-    if (!aiText) {
-      return res.status(500).json({ message: 'No AI response received' });
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
     }
 
-    const parsedContent = extractJson(aiText);
+    const parsedContent = await generateImportantQuestionsWithAI({
+      courseTitle: course.title,
+      sourceText: sourceText.trim(),
+    });
 
     const studyTool = await StudyTool.create({
       course: courseId,
@@ -157,6 +189,131 @@ Rules:
     res.status(500).json({
       message: 'Server error while generating important questions',
       error: error.message,
+    });
+  }
+});
+
+// ✅ ADMIN: Generate Important Questions directly from selected/all course PDFs
+router.post('/generate-important-questions-from-pdf', protect, adminOnly, async (req, res) => {
+  try {
+    const { courseId, pdfIndex = 0, pdfIndexes, allPdfs = false } = req.body;
+
+    if (!courseId) {
+      return res.status(400).json({ message: 'courseId is required' });
+    }
+
+    const course = await Course.findById(courseId);
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    if (!course.pdfs || course.pdfs.length === 0) {
+      return res.status(400).json({
+        message: 'Is course mein koi PDF uploaded nahi hai',
+      });
+    }
+
+    let pdfsToUse = [];
+
+    // ✅ Frontend se selected indexes aayenge: pdfIndexes: [0, 2, 4]
+    if (Array.isArray(pdfIndexes) && pdfIndexes.length > 0) {
+      pdfsToUse = pdfIndexes
+        .map((index) => course.pdfs[Number(index)])
+        .filter((pdf) => pdf?.url);
+    } else if (allPdfs) {
+      pdfsToUse = course.pdfs.filter((pdf) => pdf?.url);
+    } else {
+      pdfsToUse = [course.pdfs[Number(pdfIndex)] || course.pdfs[0]].filter((pdf) => pdf?.url);
+    }
+
+    if (pdfsToUse.length === 0) {
+      return res.status(400).json({
+        message: 'Selected PDF URLs missing hain',
+      });
+    }
+
+    let combinedText = '';
+    const usedPdfs = [];
+    const failedPdfs = [];
+
+    // ✅ Selected PDFs ka text combine karo
+    for (const pdf of pdfsToUse) {
+      try {
+        console.log('📄 Extracting text from PDF:', pdf.title || pdf.url);
+
+        const pdfText = await extractTextFromPdfUrl(pdf.url);
+
+        combinedText += `\n\n===== PDF: ${pdf.title || pdf.filename || 'Untitled PDF'} =====\n\n`;
+        combinedText += pdfText;
+
+        usedPdfs.push({
+          title: pdf.title || '',
+          url: pdf.url || '',
+          filename: pdf.filename || '',
+          extractedCharacters: pdfText.length,
+        });
+
+        console.log('✅ PDF text extracted:', pdf.title || pdf.filename, pdfText.length);
+      } catch (pdfErr) {
+        console.log('❌ PDF extract failed:', pdf.title || pdf.filename, pdfErr.message);
+
+        failedPdfs.push({
+          title: pdf.title || '',
+          filename: pdf.filename || '',
+          error: pdfErr.message,
+        });
+      }
+    }
+
+    if (!combinedText.trim() || combinedText.trim().length < 80) {
+      return res.status(400).json({
+        message:
+          'Selected PDFs se text extract nahi ho paya. PDFs scanned/image based ho sakti hain ya URL accessible nahi hai.',
+        failedPdfs,
+      });
+    }
+
+    const parsedContent = await generateImportantQuestionsWithAI({
+      courseTitle: course.title,
+      sourceText: combinedText,
+    });
+
+    const studyTool = await StudyTool.create({
+      course: courseId,
+      type: 'important_questions',
+      title: `Important Questions - ${course.title}`,
+      content: parsedContent,
+      sourcePdf: {
+        title:
+          usedPdfs.length > 1
+            ? `${usedPdfs.length} PDFs combined`
+            : usedPdfs[0]?.title || '',
+        url: usedPdfs[0]?.url || '',
+        filename:
+          usedPdfs.length > 1
+            ? usedPdfs.map((p) => p.filename || p.title).filter(Boolean).join(', ')
+            : usedPdfs[0]?.filename || '',
+      },
+      status: 'draft',
+      generatedBy: req.user?._id,
+    });
+
+    res.status(201).json({
+      message:
+        usedPdfs.length > 1
+          ? 'Important questions generated from selected PDFs successfully'
+          : 'Important questions generated from selected PDF successfully',
+      studyTool,
+      extractedCharacters: combinedText.length,
+      usedPdfCount: usedPdfs.length,
+      usedPdfs,
+      failedPdfs,
+    });
+  } catch (error) {
+    console.error('Generate Important Questions From PDF Error:', error);
+    res.status(500).json({
+      message: error.message || 'Server error while generating important questions from PDF',
     });
   }
 });
