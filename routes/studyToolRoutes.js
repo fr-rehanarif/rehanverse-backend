@@ -232,6 +232,85 @@ function mergeGeneratedQuizSets(items) {
   };
 }
 
+// ✅ Helper: merge + dedupe AI summaries
+function mergeGeneratedSummarySets(items) {
+  const definitions = [];
+  const keyPoints = [];
+  const examAnswer = [];
+  const quickRevision = [];
+  const importantTerms = [];
+  const seen = new Set();
+
+  const pushUnique = (target, values, limit = 12) => {
+    for (const value of safeArray(values)) {
+      const text = String(value || '').trim();
+      const key = text.toLowerCase();
+
+      if (!text || seen.has(key)) continue;
+
+      seen.add(key);
+      target.push(text);
+
+      if (target.length >= limit) break;
+    }
+  };
+
+  for (const item of safeArray(items)) {
+    pushUnique(definitions, item.definitions, 8);
+    pushUnique(keyPoints, item.keyPoints, 14);
+    pushUnique(examAnswer, item.examAnswer, 10);
+    pushUnique(quickRevision, item.quickRevision, 10);
+    pushUnique(importantTerms, item.importantTerms, 12);
+  }
+
+  return {
+    summary: String(items?.[0]?.summary || '').trim() || 'Summary generated from selected study material.',
+    definitions: definitions.slice(0, 8),
+    keyPoints: keyPoints.slice(0, 14),
+    examAnswer: examAnswer.slice(0, 10),
+    quickRevision: quickRevision.slice(0, 10),
+    importantTerms: importantTerms.slice(0, 12),
+  };
+}
+
+// ✅ Helper: merge + dedupe flashcards
+function mergeGeneratedFlashcardSets(items) {
+  const seen = new Set();
+  const output = [];
+
+  for (const set of safeArray(items)) {
+    const cards = safeArray(set.flashcards || set.cards);
+
+    for (const card of cards) {
+      const front = String(card?.front || card?.question || '').trim();
+      const back = String(card?.back || card?.answer || '').trim();
+      const hint = String(card?.hint || card?.memoryHint || '').trim();
+      const tag = String(card?.tag || card?.topic || '').trim();
+
+      const key = front.toLowerCase();
+
+      if (!front || !back || seen.has(key)) continue;
+
+      seen.add(key);
+
+      output.push({
+        front,
+        back,
+        hint,
+        tag,
+      });
+
+      if (output.length >= 30) break;
+    }
+
+    if (output.length >= 30) break;
+  }
+
+  return {
+    flashcards: output.slice(0, 30),
+  };
+}
+
 // ✅ Helper: Call Groq and return parsed JSON
 async function callGroqJson(prompt, maxTokens = 650) {
   const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -459,6 +538,174 @@ Rules:
 
   console.log('✅ AI quiz chunking finished:', {
     quizQuestions: merged.quizQuestions.length,
+  });
+
+  return merged;
+}
+
+// ✅ Helper: Generate AI Summary using Groq with chunking + merge
+async function generateSummaryWithAI({ courseTitle, sourceText }) {
+  if (!GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY missing in environment variables');
+  }
+
+  const chunks = createBalancedChunks(sourceText, 2600, 4);
+
+  if (chunks.length === 0) {
+    throw new Error('Summary generation ke liye readable PDF text nahi mila.');
+  }
+
+  console.log(`🧠 AI summary chunking started. Total chunks used: ${chunks.length}`);
+
+  const generatedParts = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+
+    const prompt = `
+You are an expert Indian university exam assistant.
+
+Create a simple, exam-focused AI summary from this PDF chunk.
+
+Course Title: ${courseTitle}
+Chunk: ${i + 1} of ${chunks.length}
+
+Material:
+${chunk}
+
+Return ONLY valid JSON in this exact format:
+{
+  "summary": "string",
+  "definitions": ["string"],
+  "keyPoints": ["string"],
+  "examAnswer": ["string"],
+  "quickRevision": ["string"],
+  "importantTerms": ["string"]
+}
+
+Rules:
+- summary should be short and useful.
+- definitions should contain important definitions only.
+- keyPoints should contain exam-focused points.
+- examAnswer should help student write a long answer.
+- quickRevision should be last-minute revision bullets.
+- importantTerms should include keywords only.
+- Keep language simple.
+- Do not add markdown.
+- Do not add text outside JSON.
+`;
+
+    try {
+      console.log(`📝 Groq generating summary chunk ${i + 1}/${chunks.length}...`);
+      const result = await callGroqJson(prompt, 850);
+      generatedParts.push(result);
+    } catch (err) {
+      if (err.code === 'rate_limit_exceeded' || err.type === 'tokens') {
+        console.log(`⏳ Groq summary rate limit on chunk ${i + 1}. Waiting 20s then retrying...`);
+        await sleep(20000);
+        const retryResult = await callGroqJson(prompt, 850);
+        generatedParts.push(retryResult);
+      } else {
+        throw err;
+      }
+    }
+
+    if (i < chunks.length - 1) {
+      await sleep(65000);
+    }
+  }
+
+  const merged = mergeGeneratedSummarySets(generatedParts);
+
+  console.log('✅ AI summary chunking finished:', {
+    definitions: merged.definitions.length,
+    keyPoints: merged.keyPoints.length,
+    examAnswer: merged.examAnswer.length,
+    quickRevision: merged.quickRevision.length,
+    importantTerms: merged.importantTerms.length,
+  });
+
+  return merged;
+}
+
+// ✅ Helper: Generate Flashcards using Groq with chunking + merge
+async function generateFlashcardsWithAI({ courseTitle, sourceText }) {
+  if (!GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY missing in environment variables');
+  }
+
+  const chunks = createBalancedChunks(sourceText, 2500, 5);
+
+  if (chunks.length === 0) {
+    throw new Error('Flashcards generation ke liye readable PDF text nahi mila.');
+  }
+
+  console.log(`🧠 AI flashcards chunking started. Total chunks used: ${chunks.length}`);
+
+  const generatedParts = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+
+    const prompt = `
+You are an expert Indian university exam flashcard creator.
+
+Create revision flashcards from this PDF chunk.
+
+Course Title: ${courseTitle}
+Chunk: ${i + 1} of ${chunks.length}
+
+Material:
+${chunk}
+
+Return ONLY valid JSON in this exact format:
+{
+  "flashcards": [
+    {
+      "front": "string",
+      "back": "string",
+      "hint": "string",
+      "tag": "string"
+    }
+  ]
+}
+
+Rules:
+- Generate 5 flashcards from this chunk.
+- front should be a question, keyword, or concept.
+- back should be the answer/explanation.
+- hint should be a short memory trick or clue.
+- tag should be topic/category.
+- Keep language simple and exam-focused.
+- Avoid duplicate cards.
+- Do not add markdown.
+- Do not add text outside JSON.
+`;
+
+    try {
+      console.log(`🃏 Groq generating flashcards chunk ${i + 1}/${chunks.length}...`);
+      const result = await callGroqJson(prompt, 900);
+      generatedParts.push(result);
+    } catch (err) {
+      if (err.code === 'rate_limit_exceeded' || err.type === 'tokens') {
+        console.log(`⏳ Groq flashcards rate limit on chunk ${i + 1}. Waiting 20s then retrying...`);
+        await sleep(20000);
+        const retryResult = await callGroqJson(prompt, 900);
+        generatedParts.push(retryResult);
+      } else {
+        throw err;
+      }
+    }
+
+    if (i < chunks.length - 1) {
+      await sleep(65000);
+    }
+  }
+
+  const merged = mergeGeneratedFlashcardSets(generatedParts);
+
+  console.log('✅ AI flashcards chunking finished:', {
+    flashcards: merged.flashcards.length,
   });
 
   return merged;
@@ -806,6 +1053,350 @@ router.post('/generate-quiz-from-pdf', protect, adminOnly, async (req, res) => {
     console.error('Generate Quiz From PDF Error:', error);
     res.status(500).json({
       message: error.message || 'Server error while generating quiz from PDF',
+    });
+  }
+});
+
+// ✅ ADMIN: Generate AI Summary from pasted text
+router.post('/generate-summary', protect, adminOnly, async (req, res) => {
+  try {
+    const { courseId, sourceText, sourcePdf, customTitle = '' } = req.body;
+
+    if (!courseId) {
+      return res.status(400).json({ message: 'courseId is required' });
+    }
+
+    if (!sourceText || sourceText.trim().length < 50) {
+      return res.status(400).json({
+        message: 'sourceText is required and should be at least 50 characters',
+      });
+    }
+
+    const course = await Course.findById(courseId);
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    const parsedContent = await generateSummaryWithAI({
+      courseTitle: course.title,
+      sourceText: sourceText.trim(),
+    });
+
+    const studyTool = await StudyTool.create({
+      course: courseId,
+      type: 'summary',
+      title: customTitle?.trim() || `AI Summary - ${course.title}`,
+      content: parsedContent,
+      sourcePdf: sourcePdf || {},
+      status: 'draft',
+      generatedBy: req.user?._id,
+    });
+
+    res.status(201).json({
+      message: 'AI Summary generated successfully',
+      studyTool,
+    });
+  } catch (error) {
+    console.error('Generate Summary Error:', error);
+    res.status(500).json({
+      message: 'Server error while generating AI summary',
+      error: error.message,
+    });
+  }
+});
+
+// ✅ ADMIN: Generate AI Summary directly from selected/all course PDFs
+router.post('/generate-summary-from-pdf', protect, adminOnly, async (req, res) => {
+  try {
+    const { courseId, pdfIndex = 0, pdfIndexes, allPdfs = false, customTitle = '' } = req.body;
+
+    if (!courseId) {
+      return res.status(400).json({ message: 'courseId is required' });
+    }
+
+    const course = await Course.findById(courseId);
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    if (!course.pdfs || course.pdfs.length === 0) {
+      return res.status(400).json({
+        message: 'Is course mein koi PDF uploaded nahi hai',
+      });
+    }
+
+    let pdfsToUse = [];
+
+    if (Array.isArray(pdfIndexes) && pdfIndexes.length > 0) {
+      pdfsToUse = pdfIndexes
+        .map((index) => course.pdfs[Number(index)])
+        .filter((pdf) => pdf?.url);
+    } else if (allPdfs) {
+      pdfsToUse = course.pdfs.filter((pdf) => pdf?.url);
+    } else {
+      pdfsToUse = [course.pdfs[Number(pdfIndex)] || course.pdfs[0]].filter((pdf) => pdf?.url);
+    }
+
+    if (pdfsToUse.length === 0) {
+      return res.status(400).json({
+        message: 'Selected PDF URLs missing hain',
+      });
+    }
+
+    let combinedText = '';
+    const usedPdfs = [];
+    const failedPdfs = [];
+
+    for (const pdf of pdfsToUse) {
+      try {
+        console.log('📄 Extracting text from PDF for summary:', pdf.title || pdf.url);
+
+        const pdfText = await extractTextFromPdfUrl(pdf.url);
+
+        combinedText += `\n\n===== PDF: ${pdf.title || pdf.filename || 'Untitled PDF'} =====\n\n`;
+        combinedText += pdfText;
+
+        usedPdfs.push({
+          title: pdf.title || '',
+          url: pdf.url || '',
+          filename: pdf.filename || '',
+          extractedCharacters: pdfText.length,
+        });
+
+        console.log('✅ PDF text extracted for summary:', pdf.title || pdf.filename, pdfText.length);
+      } catch (pdfErr) {
+        console.log('❌ Summary PDF extract failed:', pdf.title || pdf.filename, pdfErr.message);
+
+        failedPdfs.push({
+          title: pdf.title || '',
+          filename: pdf.filename || '',
+          error: pdfErr.message,
+        });
+      }
+    }
+
+    if (!combinedText.trim() || combinedText.trim().length < 80) {
+      return res.status(400).json({
+        message:
+          'Selected PDFs se summary ke liye text extract nahi ho paya. PDFs scanned/image based ho sakti hain ya URL accessible nahi hai.',
+        failedPdfs,
+      });
+    }
+
+    const parsedContent = await generateSummaryWithAI({
+      courseTitle: course.title,
+      sourceText: combinedText,
+    });
+
+    const studyTool = await StudyTool.create({
+      course: courseId,
+      type: 'summary',
+      title: customTitle?.trim() || `AI Summary - ${course.title}`,
+      content: parsedContent,
+      sourcePdf: {
+        title:
+          usedPdfs.length > 1
+            ? `${usedPdfs.length} PDFs combined`
+            : usedPdfs[0]?.title || '',
+        url: usedPdfs[0]?.url || '',
+        filename:
+          usedPdfs.length > 1
+            ? usedPdfs.map((p) => p.filename || p.title).filter(Boolean).join(', ')
+            : usedPdfs[0]?.filename || '',
+      },
+      status: 'draft',
+      generatedBy: req.user?._id,
+    });
+
+    res.status(201).json({
+      message:
+        usedPdfs.length > 1
+          ? 'AI Summary generated from selected PDFs successfully'
+          : 'AI Summary generated from selected PDF successfully',
+      studyTool,
+      extractedCharacters: combinedText.length,
+      usedPdfCount: usedPdfs.length,
+      usedPdfs,
+      failedPdfs,
+    });
+  } catch (error) {
+    console.error('Generate Summary From PDF Error:', error);
+    res.status(500).json({
+      message: error.message || 'Server error while generating AI summary from PDF',
+    });
+  }
+});
+
+// ✅ ADMIN: Generate Flashcards from pasted text
+router.post('/generate-flashcards', protect, adminOnly, async (req, res) => {
+  try {
+    const { courseId, sourceText, sourcePdf, customTitle = '' } = req.body;
+
+    if (!courseId) {
+      return res.status(400).json({ message: 'courseId is required' });
+    }
+
+    if (!sourceText || sourceText.trim().length < 50) {
+      return res.status(400).json({
+        message: 'sourceText is required and should be at least 50 characters',
+      });
+    }
+
+    const course = await Course.findById(courseId);
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    const parsedContent = await generateFlashcardsWithAI({
+      courseTitle: course.title,
+      sourceText: sourceText.trim(),
+    });
+
+    const studyTool = await StudyTool.create({
+      course: courseId,
+      type: 'flashcards',
+      title: customTitle?.trim() || `Flashcards - ${course.title}`,
+      content: parsedContent,
+      sourcePdf: sourcePdf || {},
+      status: 'draft',
+      generatedBy: req.user?._id,
+    });
+
+    res.status(201).json({
+      message: 'Flashcards generated successfully',
+      studyTool,
+    });
+  } catch (error) {
+    console.error('Generate Flashcards Error:', error);
+    res.status(500).json({
+      message: 'Server error while generating flashcards',
+      error: error.message,
+    });
+  }
+});
+
+// ✅ ADMIN: Generate Flashcards directly from selected/all course PDFs
+router.post('/generate-flashcards-from-pdf', protect, adminOnly, async (req, res) => {
+  try {
+    const { courseId, pdfIndex = 0, pdfIndexes, allPdfs = false, customTitle = '' } = req.body;
+
+    if (!courseId) {
+      return res.status(400).json({ message: 'courseId is required' });
+    }
+
+    const course = await Course.findById(courseId);
+
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+
+    if (!course.pdfs || course.pdfs.length === 0) {
+      return res.status(400).json({
+        message: 'Is course mein koi PDF uploaded nahi hai',
+      });
+    }
+
+    let pdfsToUse = [];
+
+    if (Array.isArray(pdfIndexes) && pdfIndexes.length > 0) {
+      pdfsToUse = pdfIndexes
+        .map((index) => course.pdfs[Number(index)])
+        .filter((pdf) => pdf?.url);
+    } else if (allPdfs) {
+      pdfsToUse = course.pdfs.filter((pdf) => pdf?.url);
+    } else {
+      pdfsToUse = [course.pdfs[Number(pdfIndex)] || course.pdfs[0]].filter((pdf) => pdf?.url);
+    }
+
+    if (pdfsToUse.length === 0) {
+      return res.status(400).json({
+        message: 'Selected PDF URLs missing hain',
+      });
+    }
+
+    let combinedText = '';
+    const usedPdfs = [];
+    const failedPdfs = [];
+
+    for (const pdf of pdfsToUse) {
+      try {
+        console.log('📄 Extracting text from PDF for flashcards:', pdf.title || pdf.url);
+
+        const pdfText = await extractTextFromPdfUrl(pdf.url);
+
+        combinedText += `\n\n===== PDF: ${pdf.title || pdf.filename || 'Untitled PDF'} =====\n\n`;
+        combinedText += pdfText;
+
+        usedPdfs.push({
+          title: pdf.title || '',
+          url: pdf.url || '',
+          filename: pdf.filename || '',
+          extractedCharacters: pdfText.length,
+        });
+
+        console.log('✅ PDF text extracted for flashcards:', pdf.title || pdf.filename, pdfText.length);
+      } catch (pdfErr) {
+        console.log('❌ Flashcards PDF extract failed:', pdf.title || pdf.filename, pdfErr.message);
+
+        failedPdfs.push({
+          title: pdf.title || '',
+          filename: pdf.filename || '',
+          error: pdfErr.message,
+        });
+      }
+    }
+
+    if (!combinedText.trim() || combinedText.trim().length < 80) {
+      return res.status(400).json({
+        message:
+          'Selected PDFs se flashcards ke liye text extract nahi ho paya. PDFs scanned/image based ho sakti hain ya URL accessible nahi hai.',
+        failedPdfs,
+      });
+    }
+
+    const parsedContent = await generateFlashcardsWithAI({
+      courseTitle: course.title,
+      sourceText: combinedText,
+    });
+
+    const studyTool = await StudyTool.create({
+      course: courseId,
+      type: 'flashcards',
+      title: customTitle?.trim() || `Flashcards - ${course.title}`,
+      content: parsedContent,
+      sourcePdf: {
+        title:
+          usedPdfs.length > 1
+            ? `${usedPdfs.length} PDFs combined`
+            : usedPdfs[0]?.title || '',
+        url: usedPdfs[0]?.url || '',
+        filename:
+          usedPdfs.length > 1
+            ? usedPdfs.map((p) => p.filename || p.title).filter(Boolean).join(', ')
+            : usedPdfs[0]?.filename || '',
+      },
+      status: 'draft',
+      generatedBy: req.user?._id,
+    });
+
+    res.status(201).json({
+      message:
+        usedPdfs.length > 1
+          ? 'Flashcards generated from selected PDFs successfully'
+          : 'Flashcards generated from selected PDF successfully',
+      studyTool,
+      extractedCharacters: combinedText.length,
+      usedPdfCount: usedPdfs.length,
+      usedPdfs,
+      failedPdfs,
+    });
+  } catch (error) {
+    console.error('Generate Flashcards From PDF Error:', error);
+    res.status(500).json({
+      message: error.message || 'Server error while generating flashcards from PDF',
     });
   }
 });
