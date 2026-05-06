@@ -467,7 +467,7 @@ Rules:
 // ✅ ADMIN: Generate Important Questions from pasted text
 router.post('/generate-important-questions', protect, adminOnly, async (req, res) => {
   try {
-    const { courseId, sourceText, sourcePdf } = req.body;
+    const { courseId, sourceText, sourcePdf, customTitle = '' } = req.body;
 
     if (!courseId) {
       return res.status(400).json({ message: 'courseId is required' });
@@ -493,7 +493,7 @@ router.post('/generate-important-questions', protect, adminOnly, async (req, res
     const studyTool = await StudyTool.create({
       course: courseId,
       type: 'important_questions',
-      title: `Important Questions - ${course.title}`,
+      title: customTitle?.trim() || `Important Questions - ${course.title}`,
       content: parsedContent,
       sourcePdf: sourcePdf || {},
       status: 'draft',
@@ -516,7 +516,7 @@ router.post('/generate-important-questions', protect, adminOnly, async (req, res
 // ✅ ADMIN: Generate Important Questions directly from selected/all course PDFs
 router.post('/generate-important-questions-from-pdf', protect, adminOnly, async (req, res) => {
   try {
-    const { courseId, pdfIndex = 0, pdfIndexes, allPdfs = false } = req.body;
+    const { courseId, pdfIndex = 0, pdfIndexes, allPdfs = false, customTitle = '' } = req.body;
 
     if (!courseId) {
       return res.status(400).json({ message: 'courseId is required' });
@@ -602,7 +602,7 @@ router.post('/generate-important-questions-from-pdf', protect, adminOnly, async 
     const studyTool = await StudyTool.create({
       course: courseId,
       type: 'important_questions',
-      title: `Important Questions - ${course.title}`,
+      title: customTitle?.trim() || `Important Questions - ${course.title}`,
       content: parsedContent,
       sourcePdf: {
         title:
@@ -641,7 +641,7 @@ router.post('/generate-important-questions-from-pdf', protect, adminOnly, async 
 // ✅ ADMIN: Generate Quiz from pasted text
 router.post('/generate-quiz', protect, adminOnly, async (req, res) => {
   try {
-    const { courseId, sourceText, sourcePdf } = req.body;
+    const { courseId, sourceText, sourcePdf, customTitle = '' } = req.body;
 
     if (!courseId) {
       return res.status(400).json({ message: 'courseId is required' });
@@ -667,7 +667,7 @@ router.post('/generate-quiz', protect, adminOnly, async (req, res) => {
     const studyTool = await StudyTool.create({
       course: courseId,
       type: 'quiz',
-      title: `Quiz Practice - ${course.title}`,
+      title: customTitle?.trim() || `Quiz Practice - ${course.title}`,
       content: parsedContent,
       sourcePdf: sourcePdf || {},
       status: 'draft',
@@ -690,7 +690,7 @@ router.post('/generate-quiz', protect, adminOnly, async (req, res) => {
 // ✅ ADMIN: Generate Quiz directly from selected/all course PDFs
 router.post('/generate-quiz-from-pdf', protect, adminOnly, async (req, res) => {
   try {
-    const { courseId, pdfIndex = 0, pdfIndexes, allPdfs = false } = req.body;
+    const { courseId, pdfIndex = 0, pdfIndexes, allPdfs = false, customTitle = '' } = req.body;
 
     if (!courseId) {
       return res.status(400).json({ message: 'courseId is required' });
@@ -774,7 +774,7 @@ router.post('/generate-quiz-from-pdf', protect, adminOnly, async (req, res) => {
     const studyTool = await StudyTool.create({
       course: courseId,
       type: 'quiz',
-      title: `Quiz Practice - ${course.title}`,
+      title: customTitle?.trim() || `Quiz Practice - ${course.title}`,
       content: parsedContent,
       sourcePdf: {
         title:
