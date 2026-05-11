@@ -24,6 +24,8 @@ const notificationSchema = new mongoose.Schema(
         'payment',
         'pdf',
         'video',
+        'certificate', // ✅ NEW: certificate generated notification
+        'referral',    // ✅ NEW: future referral reward notification
       ],
       default: 'general',
     },

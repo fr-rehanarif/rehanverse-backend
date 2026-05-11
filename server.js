@@ -27,6 +27,7 @@ const progressRoutes = require('./routes/progressRoutes');
 const assistantRoutes = require('./routes/assistantRoutes');
 const authRoutes = require('./routes/authRoutes');
 const studyToolRoutes = require('./routes/studyToolRoutes');
+const certificateRoutes = require('./routes/certificateRoutes');
 
 // ✅ MIDDLEWARE
 app.use(
@@ -72,6 +73,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/assistant', assistantRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/study-tools', studyToolRoutes);
+app.use('/api/certificates', certificateRoutes);
 
 // ✅ TEST ROUTE
 app.get('/api/test', (req, res) => {

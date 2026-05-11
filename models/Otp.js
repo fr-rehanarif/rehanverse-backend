@@ -31,6 +31,14 @@ const otpSchema = new mongoose.Schema(
       default: '',
     },
 
+    // ✅ NEW: signup OTP ke saath referral code temporarily save hoga
+    referralCode: {
+      type: String,
+      default: '',
+      uppercase: true,
+      trim: true,
+    },
+
     attempts: {
       type: Number,
       default: 0,
