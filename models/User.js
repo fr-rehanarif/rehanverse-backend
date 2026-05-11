@@ -130,7 +130,7 @@ const userSchema = new mongoose.Schema(
 );
 
 // ✅ Auto referral code generator
-userSchema.pre('save', function (next) {
+userSchema.pre('save', function () {
   if (!this.referralCode) {
     const namePart = this.name
       ? this.name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase()
@@ -138,10 +138,8 @@ userSchema.pre('save', function (next) {
 
     const randomPart = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    this.referralCode = `${namePart}${randomPart}`;
+    this.referralCode = `${namePart || 'RV'}${randomPart}`;
   }
-
-  next();
 });
 
 module.exports = mongoose.model('User', userSchema);
