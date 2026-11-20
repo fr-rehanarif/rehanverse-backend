@@ -1,0 +1,39 @@
+
+const { execFile } = require("child_process");
+const path = require("path");
+
+const ENGINE_PATH = path.join(
+  __dirname,
+  "../cpp-engine/logic_engine.exe"
+);
+
+function runLogicEngine(args) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      ENGINE_PATH,
+      args,
+      { timeout: 5000, windowsHide: true, maxBuffer: 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          return reject(
+            new Error(stderr || error.message)
+          );
+        }
+
+        try {
+          const result = JSON.parse(stdout.trim());
+
+          if (!result.success) {
+            return reject(new Error("Logic engine failed"));
+          }
+
+          resolve(result);
+        } catch {
+          reject(new Error("Invalid JSON from C++ engine"));
+        }
+      }
+    );
+  });
+}
+
+module.exports = { runLogicEngine };

@@ -73,6 +73,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/assistant', assistantRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/study-tools', studyToolRoutes);
+app.use('/api/logic-lab', require('./routes/logicLabRoutes'));
 app.use('/api/certificates', certificateRoutes);
 
 // ✅ TEST ROUTE
@@ -88,15 +89,30 @@ app.get('/', (req, res) => {
   res.status(200).send('Server is alive 🚀');
 });
 
-// ✅ DB CONNECT
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log('✅ Database connected!'))
-  .catch((err) => console.log('❌ DB Error:', err.message));
-
-// ✅ SERVER START
+// Start accepting traffic only after MongoDB is reachable. Otherwise login
+// queries sit in Mongoose's buffer and fail later with a misleading timeout.
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+const startServer = async () => {
+  if (!process.env.MONGO_URI) {
+    throw new Error('MONGO_URI is missing from the backend environment.');
+  }
+
+  await mongoose.connect(process.env.MONGO_URI, {
+    serverSelectionTimeoutMS: 10000,
+  });
+  console.log('✅ Database connected!');
+
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', database: 'connected' });
+  });
+
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+  });
+};
+
+startServer().catch((err) => {
+  console.error('❌ Backend startup failed. Check the Render MONGO_URI setting:', err.message);
+  process.exit(1);
 });

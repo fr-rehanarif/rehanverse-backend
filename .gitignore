@@ -1,3 +1,4 @@
 node_modules/
 .env
 uploads/
+cpp-engine/logic_engine.exe
