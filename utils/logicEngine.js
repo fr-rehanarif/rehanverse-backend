@@ -2,9 +2,12 @@
 const { execFile } = require("child_process");
 const path = require("path");
 
-const ENGINE_PATH = path.join(
+const IS_WINDOWS = process.platform === "win32";
+
+const ENGINE_PATH = process.env.LOGIC_ENGINE_PATH || path.join(
   __dirname,
-  "../cpp-engine/logic_engine.exe"
+  "../cpp-engine",
+  IS_WINDOWS ? "logic_engine.exe" : "logic_engine"
 );
 
 function runLogicEngine(args) {
@@ -12,7 +15,11 @@ function runLogicEngine(args) {
     execFile(
       ENGINE_PATH,
       args,
-      { timeout: 5000, windowsHide: true, maxBuffer: 1024 * 1024 },
+      {
+        timeout: 5000,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024
+      },
       (error, stdout, stderr) => {
         if (error) {
           return reject(
